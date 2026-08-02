@@ -24,6 +24,9 @@ wheels/
 eval/results/*.json
 !eval/results/baseline.json
 
+# Ingestion output — regenerate with scripts/ingest_corpus.py, don't commit
+data/processed/*.json
+
 # Local Claude Code permissions (machine-specific, not shared)
 .claude/settings.local.json
 
