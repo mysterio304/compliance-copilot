@@ -8,11 +8,13 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "asyncpg>=0.31.0",
+    "docling>=2.117.0",
     "fastapi>=0.141.1",
     "pgvector>=0.5.0",
     "pydantic>=2",
     "pydantic-settings>=2.14.2",
     "python-multipart>=0.0.32",
+    "pyyaml>=6.0.3",
     "sqlalchemy[asyncio]>=2.0.51",
     "uvicorn[standard]>=0.52.1",
 ]
@@ -31,6 +33,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.16.1",
+    "types-pyyaml>=6.0.12.20260724",
 ]
 
 [tool.ruff]
