@@ -62,6 +62,6 @@ module = ["docling.*", "langgraph.*", "langfuse.*", "FlagEmbedding.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "eval"]
 asyncio_mode = "auto"
-pythonpath = ["src"]
+pythonpath = ["src", "."]
