@@ -1,0 +1,14 @@
+id: case_003
+input_spec: |
+  Product: Widget X200
+  No further technical details, materials, voltage, or intended use
+  information has been provided by the supplier.
+language: en
+expected_regulations: []
+expected_clauses: []
+must_not_return: []
+expect_abstain: true
+notes: >
+  Insufficient-information case. There is nothing here to reason about —
+  no voltage, no materials, no product category. The system must decline
+  rather than guess a regulation.

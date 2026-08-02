@@ -1,0 +1,21 @@
+id: case_005
+input_spec: |
+  产品：USB充电器
+  输入电压：100-240V AC 50/60Hz
+  输出电压：5V DC 2A
+  外壳材质：聚碳酸酯
+  无线功能：无
+  预期用途：家用电子设备充电
+language: zh
+expected_regulations: ["ТР ТС 004/2011", "ТР ТС 020/2011", "ТР ЕАЭС 037/2016"]
+expected_clauses:
+  - doc: tr_ts_004_2011
+    clause: "Статья 1, пункт 1"
+  - doc: tr_ts_020_2011
+    clause: "Статья 1, пункт 1"
+must_not_return: ["ТР ТС 008/2011", "ТР ТС 010/2011"]
+notes: >
+  Entirely Chinese spec (USB charger: 100-240V AC input, 5V DC 2A output,
+  polycarbonate housing, no wireless, for home electronics charging). Same
+  regulation set as case_002's LED lamp adapter — tests cross-lingual
+  retrieval reaches the same Russian clauses from Chinese input alone.

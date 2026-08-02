@@ -1,0 +1,14 @@
+id: case_007
+input_spec: |
+  Item: SKU-88213-B
+  (No description, materials, voltage, product category, or intended use
+  provided by the supplier.)
+language: en
+expected_regulations: []
+expected_clauses: []
+must_not_return: []
+expect_abstain: true
+notes: >
+  Second insufficient-information case, different flavor from case_003 (a
+  bare part number rather than a named but empty product). Tests that
+  abstention isn't just pattern-matched to one phrasing.

@@ -1,0 +1,19 @@
+id: case_006
+input_spec: |
+  Product: Industrial Metal Cutting Bandsaw, Model BS-450
+  Power: 380V AC 3-phase electric motor, 4kW
+  Control: digital control panel with LED display, programmable cut sequences
+  Construction: welded steel frame, cast iron table
+  Intended use: industrial workshop, metal fabrication
+language: en
+expected_regulations: ["ТР ТС 010/2011", "ТР ТС 004/2011", "ТР ТС 020/2011"]
+expected_clauses:
+  - doc: tr_ts_010_2011
+    clause: "Статья 1, пункт 1"
+  - doc: tr_ts_004_2011
+    clause: "Статья 1, пункт 1"
+must_not_return: ["ТР ТС 008/2011"]
+notes: >
+  Multi-regulation industrial case, different combination shape from the
+  consumer-electronics cases: machinery safety (the saw itself) plus LVD and
+  EMC (the electric motor and digital control panel are in scope). Not a toy.

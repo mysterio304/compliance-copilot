@@ -1,0 +1,20 @@
+id: case_009
+input_spec: |
+  Product: Wireless Bluetooth Speaker
+  输入: 5V/2A via USB-C
+  电池: built-in lithium battery 3.7V 2000mAh
+  材质: ABS + aluminum housing
+  Intended use: home audio, general consumers (adults)
+language: mixed
+expected_regulations: ["ТР ТС 004/2011", "ТР ТС 020/2011", "ТР ЕАЭС 037/2016"]
+expected_clauses:
+  - doc: tr_ts_020_2011
+    clause: "Статья 1, пункт 1"
+  - doc: tr_eaes_037_2016
+    clause: "Раздел I, пункт 2"
+must_not_return: ["ТР ТС 008/2011", "ТР ТС 010/2011"]
+notes: >
+  Multi-regulation, mixed English/Chinese spec (matches the brief's "Chinese
+  or broken English" framing). Wireless/Bluetooth makes EMC unambiguous;
+  built-in battery and general electronics scope bring in LVD and RoHS.
+  General consumer audio product, not a toy, not machinery.

@@ -1,0 +1,21 @@
+id: case_004
+input_spec: |
+  Product: Cartoon Animal Night Light
+  Description: decorative bedroom lighting fixture shaped like a cartoon fox,
+    soft LED glow, wall-pluggable
+  Input: 220V AC 50Hz
+  Materials: PC plastic shade, ABS base
+  Marketing: sold in the children's bedroom decor section, but explicitly not
+    intended for play — a lighting fixture, not a toy
+language: en
+expected_regulations: ["ТР ТС 004/2011", "ТР ТС 020/2011", "ТР ЕАЭС 037/2016"]
+expected_clauses:
+  - doc: tr_ts_004_2011
+    clause: "Статья 1, пункт 1"
+must_not_return: ["ТР ТС 008/2011", "ТР ТС 010/2011"]
+notes: >
+  Plausible-but-wrong case. Cartoon shape and "children's bedroom" marketing
+  make ТР ТС 008/2011 (toy safety) look tempting, but the product is
+  explicitly a lighting fixture, not a toy — 008/2011's own scope (Статья 1,
+  пункт 2) excludes items not considered toys. Tests that the agent reasons
+  about function, not just child-adjacent marketing language.

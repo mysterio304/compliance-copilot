@@ -1,0 +1,18 @@
+id: case_002
+input_spec: |
+  Product: LED desk lamp, 5V DC input via USB-C adapter
+  输入电压: 100-240V AC 50/60Hz (adapter)
+  Materials: ABS housing, aluminium heat sink
+  No wireless functionality
+language: mixed
+expected_regulations: ["ТР ТС 004/2011", "ТР ТС 020/2011", "ТР ЕАЭС 037/2016"]
+expected_clauses:
+  - doc: tr_ts_004_2011
+    clause: "Статья 1, пункт 1"
+  - doc: tr_eaes_037_2016
+    clause: "Раздел I, пункт 2"
+must_not_return: ["ТР ТС 008/2011", "ТР ТС 010/2011"]
+notes: >
+  Multi-regulation case. Adapter is in scope for LVD even though the lamp
+  itself runs on 5V DC; the lamp is also electrical/electronic equipment in
+  scope for EMC and RoHS. Not a toy, not machinery.

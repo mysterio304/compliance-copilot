@@ -1,0 +1,17 @@
+id: case_001
+input_spec: |
+  Product: Hand-Crank Manual Coffee Grinder
+  Construction: cast iron frame, steel burrs, wooden crank handle
+  Power source: none — fully manual, no motor, no batteries, no electrical
+    or electronic components of any kind
+  Intended use: home kitchen use, adults
+language: en
+expected_regulations: ["ТР ТС 010/2011"]
+expected_clauses:
+  - doc: tr_ts_010_2011
+    clause: "Статья 1, пункт 1"
+must_not_return: ["ТР ТС 004/2011", "ТР ТС 020/2011", "ТР ЕАЭС 037/2016", "ТР ТС 008/2011"]
+notes: >
+  Clear single-regulation case. No electrical or electronic parts at all, so
+  low-voltage safety, EMC, and RoHS never trigger — only machinery safety
+  applies. Not a toy.

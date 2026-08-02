@@ -1,0 +1,16 @@
+id: case_010
+input_spec: |
+  Product: Plush Teddy Bear
+  Materials: polyester textile fabric, polyester fiber stuffing
+  Power source: none — no electronic or electrical parts, no batteries,
+    no sound module
+  Intended use: children ages 0+, soft toy for play and comfort
+language: en
+expected_regulations: ["ТР ТС 008/2011"]
+expected_clauses:
+  - doc: tr_ts_008_2011
+    clause: "Статья 1, пункт 1"
+must_not_return: ["ТР ТС 004/2011", "ТР ТС 020/2011", "ТР ЕАЭС 037/2016", "ТР ТС 010/2011"]
+notes: >
+  Clear single-regulation case, the toy-side mirror of case_001: a plain
+  soft toy with zero electrical content, so only toy safety applies.

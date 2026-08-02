@@ -1,0 +1,18 @@
+id: case_008
+input_spec: |
+  Product: Wooden Building Blocks Set
+  Materials: solid pine wood, water-based non-toxic paint, no batteries,
+    no electronic or electrical components
+  Intended use: children ages 3+, construction/stacking play
+language: en
+expected_regulations: ["ТР ТС 008/2011"]
+expected_clauses:
+  - doc: tr_ts_008_2011
+    clause: "Статья 1, пункт 1"
+must_not_return: ["ТР ЕАЭС 037/2016", "ТР ТС 004/2011", "ТР ТС 020/2011", "ТР ТС 010/2011"]
+notes: >
+  Plausible-but-wrong case, opposite direction from case_004: a naive
+  keyword system might reach for RoHS/EMC/LVD because it's a manufactured
+  consumer product, but there is no electrical or electronic content at all
+  — those regulations, and machinery safety, must not apply. Only toy
+  safety applies.
