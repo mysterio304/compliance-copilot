@@ -33,7 +33,7 @@ class ClauseRow(Base):
     __tablename__ = "clauses"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
-    document_id: Mapped[str] = mapped_column(ForeignKey("documents.id"))
+    document_id: Mapped[str] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"))
     clause_path: Mapped[str] = mapped_column(Text)
     text: Mapped[str] = mapped_column(Text)
     char_start: Mapped[int]
@@ -58,7 +58,7 @@ class ChunkRow(Base):
     __tablename__ = "chunks"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
-    clause_id: Mapped[str] = mapped_column(ForeignKey("clauses.id"))
+    clause_id: Mapped[str] = mapped_column(ForeignKey("clauses.id", ondelete="CASCADE"))
     text: Mapped[str] = mapped_column(Text)
     embedding_model: Mapped[str] = mapped_column(String)
     dense_embedding: Mapped[list[float] | None] = mapped_column(

@@ -20,6 +20,12 @@ async def embed_and_store_document(
     """Embeds every chunk of one document with BGE-M3 and (re)writes it to Postgres.
     Idempotent: deletes any existing rows for this document_id first, so re-running
     the loader after a re-ingestion doesn't leave stale chunks behind.
+
+    This delete is a bulk Core statement, not an ORM session.delete(instance) — the
+    model-level `cascade="all, delete-orphan"` relationships never fire for it, so
+    the cascade to clauses/chunks has to happen at the database level (see
+    ondelete="CASCADE" on both foreign keys in db/models.py) or this raises a
+    ForeignKeyViolationError instead of cleaning up.
     """
     document_id = ingested.document.id
     await session.execute(delete(DocumentRow).where(DocumentRow.id == document_id))
