@@ -15,9 +15,11 @@ class Settings(BaseSettings):
 
     environment: Literal["development", "test", "production"] = "development"
 
-    # Database
+    # Database. Host-side port is 5433 (not 5432) to avoid colliding with a
+    # locally-installed Postgres; inside docker-compose the api service talks to
+    # db:5432 directly, unaffected by this host-side remap.
     database_url: str = (
-        "postgresql+asyncpg://compliance:compliance@localhost:5432/compliance_copilot"
+        "postgresql+asyncpg://compliance:compliance@localhost:5433/compliance_copilot"
     )
 
     # LLM provider (agent reasoning nodes — DeepSeek's OpenAI-compatible API)

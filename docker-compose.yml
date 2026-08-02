@@ -6,7 +6,9 @@ services:
       POSTGRES_PASSWORD: compliance
       POSTGRES_DB: compliance_copilot
     ports:
-      - "5432:5432"
+      # Host-side 5433 avoids colliding with a locally-installed Postgres on 5432.
+      # Container-internal traffic (the api service, via `db:5432`) is unaffected.
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./docker/init-db:/docker-entrypoint-initdb.d:ro
