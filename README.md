@@ -40,6 +40,7 @@ docker compose down
 uv run python scripts/ingest_corpus.py   # data/raw_pdfs/*.pdf -> data/processed/*.json
 uv run python scripts/corpus_stats.py    # measured document/clause/chunk counts
 uv run python scripts/load_corpus.py     # embeds with BGE-M3, writes to Postgres
+uv run python eval/run_eval.py           # retrieval-only baseline (see below)
 ```
 
 Note: the Postgres container publishes on host port **5433**, not 5432 — this
@@ -75,6 +76,43 @@ The relevance floor (checked against dense cosine similarity) is what makes
 "insufficient evidence" possible: a nonsense query returns no hits rather than
 a weak match.
 
+## Evaluation harness (measured, Phase 4 — pre-agent baseline)
+
+10 hand-labelled gold cases in `eval/cases/`, scored against 5 metrics in
+`eval/metrics.py`. Built and run *before* the agent exists (Phase 5) — every
+case here queries `hybrid_search` directly with the whole `input_spec` text,
+with no query planning or applicability reasoning in front of it yet. This is
+deliberately the weakest the system will ever measure; it exists so Phase 5's
+agent has something concrete to improve against, not to look good on its own.
+
+| Metric | Value |
+|---|---:|
+| retrieval_recall_at_k | 0.125 |
+| citation_precision | 0.560 |
+| regulation_set_f1 | 0.726 |
+| false_positive_rate | 0.524 |
+| abstention_accuracy | 0.000 |
+
+Two results were investigated rather than taken at face value:
+
+- **abstention_accuracy = 0.0** — the relevance floor alone can't tell "vague
+  query" from "topically similar to something." A spec that just says "no
+  technical details provided" still scores 0.56–0.59 cosine similarity against
+  clauses that are *about* documentation requirements — related vocabulary,
+  wrong reason. Fixing this needs an explicit attribute-extraction step that
+  can recognize "nothing was actually extracted," not a stricter threshold.
+- **false_positive_rate = 0.524** — driven largely by boilerplate preamble
+  clauses ("Настоящий технический регламент... разработан в соответствии с
+  Соглашением...") that are nearly identical across all five regulations, so
+  they weakly match almost any query regardless of what the product actually
+  is. Whole-spec-as-one-query retrieval has no way to filter these out; per-
+  regulation applicability reasoning (Phase 5) does.
+
+`eval/run_eval.py` writes `eval/results/latest.json` and compares it against
+the committed `eval/results/baseline.json`, exiting non-zero on a regression
+beyond tolerance (default 5 points). `--update-baseline` overwrites the
+baseline deliberately; nothing else should.
+
 ## Corpus (measured, Phase 2)
 
 | Regulation | Clauses | Chunks |
@@ -94,6 +132,6 @@ ingestion change — this table should match its output, not be hand-edited.
 - [x] Phase 1 — Foundation (schemas, config, containerized API skeleton)
 - [x] Phase 2 — Ingestion (Docling parsing, clause extraction, chunking)
 - [x] Phase 3 — Hybrid retrieval (BGE-M3 dense+sparse, RRF fusion, relevance floor)
-- [ ] Phase 4 — Evaluation harness
+- [x] Phase 4 — Evaluation harness (10 gold cases, 5 metrics, pre-agent baseline)
 - [ ] Phase 5 — Agent loop
 - [ ] Phase 6 — API and CI
