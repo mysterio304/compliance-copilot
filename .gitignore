@@ -1,0 +1,29 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# OS
+.DS_Store
+
+# Env files
+.env
+
+# mypy / pytest caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Eval outputs
+eval/results/*.json
+!eval/results/baseline.json
+
+# Local Claude Code permissions (machine-specific, not shared)
+.claude/settings.local.json
+
