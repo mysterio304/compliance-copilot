@@ -4,7 +4,7 @@ from pgvector import SparseVector
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from compliance_copilot.db.models import BGE_M3_VOCAB_SIZE, ChunkRow, ClauseRow
+from compliance_copilot.db.models import BGE_M3_VOCAB_SIZE, ChunkRow, ClauseRow, DocumentRow
 from compliance_copilot.retrieval.embedder import embed_query
 
 # Standard constant from the original RRF paper (Cormack et al.) — dampens the
@@ -28,7 +28,7 @@ class RetrievalHit:
 
 
 async def _search_dense(
-    session: AsyncSession, query_dense: list[float], top_k: int
+    session: AsyncSession, query_dense: list[float], top_k: int, regulation_code: str | None
 ) -> list[_RankedHit]:
     distance = ChunkRow.dense_embedding.cosine_distance(query_dense)
     stmt = (
@@ -41,15 +41,18 @@ async def _search_dense(
         )
         .join(ClauseRow, ChunkRow.clause_id == ClauseRow.id)
         .where(ChunkRow.dense_embedding.is_not(None))
-        .order_by(distance)
-        .limit(top_k)
     )
+    if regulation_code is not None:
+        stmt = stmt.join(DocumentRow, ClauseRow.document_id == DocumentRow.id).where(
+            DocumentRow.regulation_code == regulation_code
+        )
+    stmt = stmt.order_by(distance).limit(top_k)
     result = await session.execute(stmt)
     return [(row.id, row.clause_id, row.document_id, row.text, 1 - row.distance) for row in result]
 
 
 async def _search_sparse(
-    session: AsyncSession, query_sparse: SparseVector, top_k: int
+    session: AsyncSession, query_sparse: SparseVector, top_k: int, regulation_code: str | None
 ) -> list[_RankedHit]:
     neg_inner_product = ChunkRow.sparse_embedding.max_inner_product(query_sparse)
     stmt = (
@@ -62,9 +65,12 @@ async def _search_sparse(
         )
         .join(ClauseRow, ChunkRow.clause_id == ClauseRow.id)
         .where(ChunkRow.sparse_embedding.is_not(None))
-        .order_by(neg_inner_product)
-        .limit(top_k)
     )
+    if regulation_code is not None:
+        stmt = stmt.join(DocumentRow, ClauseRow.document_id == DocumentRow.id).where(
+            DocumentRow.regulation_code == regulation_code
+        )
+    stmt = stmt.order_by(neg_inner_product).limit(top_k)
     result = await session.execute(stmt)
     return [(row.id, row.clause_id, row.document_id, row.text, -row.neg_ip) for row in result]
 
@@ -76,6 +82,7 @@ async def hybrid_search(
     top_k: int,
     fusion_weight: float,
     relevance_floor: float,
+    regulation_code: str | None = None,
 ) -> list[RetrievalHit]:
     """Hybrid dense+sparse retrieval over BGE-M3 embeddings, fused with reciprocal
     rank fusion (fusion_weight favors dense at 1.0, sparse at 0.0).
@@ -86,12 +93,16 @@ async def hybrid_search(
     appeared in the dense top_k has no dense score and fails the floor by
     construction. If nothing clears the floor, this returns an empty list — the
     caller reports insufficient evidence rather than surfacing a weak match.
+
+    regulation_code optionally scopes the search to one document (e.g. "ТР ТС
+    004/2011") — used by the agent's per-regulation-family retrieval step so a
+    family's evidence isn't diluted by generic boilerplate from other documents.
     """
     query_embedding = embed_query(query, embedding_model)
     query_sparse = SparseVector(query_embedding.sparse, BGE_M3_VOCAB_SIZE)
 
-    dense_ranked = await _search_dense(session, query_embedding.dense, top_k)
-    sparse_ranked = await _search_sparse(session, query_sparse, top_k)
+    dense_ranked = await _search_dense(session, query_embedding.dense, top_k, regulation_code)
+    sparse_ranked = await _search_sparse(session, query_sparse, top_k, regulation_code)
 
     fused_scores: dict[str, float] = {}
     dense_scores: dict[str, float] = {}
