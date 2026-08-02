@@ -1,0 +1,44 @@
+# Known documents for the v1 electronics corpus. Metadata here is sourced from the
+# authoritative citation (Решение №/дата) embedded in each regulation's own text and
+# cross-checked against docs.cntd.ru. See data/sources.md for full provenance,
+# including why these PDFs were locally rendered rather than downloaded as-is.
+documents:
+  - doc_id: tr_ts_004_2011
+    title: "О безопасности низковольтного оборудования"
+    regulation_code: "ТР ТС 004/2011"
+    language: ru
+    publication_date: "2011-08-16"
+    source_url: "https://docs.cntd.ru/document/902299536"
+    pdf_path: "data/raw_pdfs/tr_ts_004_2011.pdf"
+
+  - doc_id: tr_ts_020_2011
+    title: "Электромагнитная совместимость технических средств"
+    regulation_code: "ТР ТС 020/2011"
+    language: ru
+    publication_date: "2011-12-09"
+    source_url: "https://docs.cntd.ru/document/902320551"
+    pdf_path: "data/raw_pdfs/tr_ts_020_2011.pdf"
+
+  - doc_id: tr_eaes_037_2016
+    title: "Об ограничении применения опасных веществ в изделиях электротехники и радиоэлектроники"
+    regulation_code: "ТР ЕАЭС 037/2016"
+    language: ru
+    publication_date: "2016-10-18"
+    source_url: "https://docs.cntd.ru/document/420387089"
+    pdf_path: "data/raw_pdfs/tr_eaes_037_2016.pdf"
+
+  - doc_id: tr_ts_010_2011
+    title: "О безопасности машин и оборудования"
+    regulation_code: "ТР ТС 010/2011"
+    language: ru
+    publication_date: "2011-10-18"
+    source_url: "https://docs.cntd.ru/document/902307904"
+    pdf_path: "data/raw_pdfs/tr_ts_010_2011.pdf"
+
+  - doc_id: tr_ts_008_2011
+    title: "О безопасности игрушек"
+    regulation_code: "ТР ТС 008/2011"
+    language: ru
+    publication_date: "2011-09-23"
+    source_url: "https://docs.cntd.ru/document/902303210"
+    pdf_path: "data/raw_pdfs/tr_ts_008_2011.pdf"
