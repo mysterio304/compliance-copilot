@@ -18,7 +18,13 @@ KNOWN_REGULATIONS: dict[str, str] = {
         "electronic products"
     ),
     "ТР ТС 010/2011": "safety of machines and/or equipment",
-    "ТР ТС 008/2011": "safety of toys",
+    "ТР ТС 008/2011": (
+        "safety of toys — applies to ALL products intended for children's play, "
+        "regardless of whether they have any electrical, electronic, or mechanical "
+        "component. Covers physical, mechanical, chemical, flammability, and "
+        "choking hazards as much as electrical ones — a plush toy or wooden block "
+        "with zero electronics is squarely in scope, not exempt"
+    ),
 }
 
 
