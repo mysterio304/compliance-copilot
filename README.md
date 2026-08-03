@@ -156,15 +156,17 @@ environment) is in [`data/sources.md`](data/sources.md).
 
 10 hand-labelled gold cases in `eval/cases/`, scored against 5 metrics
 (`eval/metrics.py`), retrieval-only (no agent in the loop) so the number
-reflects retrieval quality specifically. `top_k` was tuned by sweeping
-against this harness (`scripts/tune_retrieval.py`), not by intuition:
+reflects retrieval quality specifically. Parameters (`fusion_weight`,
+`top_k`, `relevance_floor`) were tuned by sweeping against this harness
+(`scripts/tune_retrieval.py`), not by intuition — twice: once before a real
+bug fix, once after, since the fix changed which config was actually best:
 
-| Metric | Before tuning (top_k=10) | After (top_k=5, current) |
+| Metric | Original (top_k=10, floor=0.35) | Current (fusion=0.5, top_k=10, floor=0.45) |
 |---|---:|---:|
-| retrieval_recall_at_k | 0.125 | 0.125 |
+| retrieval_recall_at_k | 0.125 | 0.250 |
 | citation_precision | 0.560 | 0.580 |
-| regulation_set_f1 | 0.726 | 0.757 |
-| false_positive_rate | 0.524 | 0.190 |
+| regulation_set_f1 | 0.726 | 0.712 |
+| false_positive_rate | 0.524 | 0.571 |
 | abstention_accuracy | 0.000 | 0.000 |
 
 `eval/run_eval.py` writes `eval/results/latest.json` and compares it against
@@ -172,8 +174,32 @@ the committed `eval/results/baseline.json`, exiting non-zero on a regression
 beyond tolerance — this is the actual CI merge gate, not a report nobody
 reads.
 
-Two results worth understanding, not just citing:
+Three real bugs were found and fixed while working with this harness, not
+assumed away:
 
+- **`fusion_weight` was silently inert.** `hybrid_search` defaulted a chunk's
+  `dense_score` to `0.0` whenever it was found only via sparse search — but a
+  chunk can have a real, floor-clearing dense similarity (e.g. 0.45) while
+  still ranking outside dense search's own independent top_k. The old code
+  discarded that real value and floor-filtered the chunk regardless of
+  `fusion_weight`, which is what made every `fusion_weight` from 0.0 to 1.0
+  produce byte-identical metrics at the shipped floor. Fixed with a
+  supplemental targeted lookup for exactly the chunks this affected — verified
+  `fusion_weight` now changes results, and `recall_at_k` doubled (0.125 →
+  0.250) once genuinely relevant chunks stopped being wrongly discarded.
+- **A realistic full spec retrieved *worse* than a bare word.** The originally
+  reported "weak lead retrieval" limitation turned out to be a symptom of a
+  bigger problem: embedding an entire prose spec as one query dilutes a
+  specific fact (e.g. "contains lead") across everything else in the text —
+  a realistic spec mentioning lead content retrieved zero lead-related
+  clauses in the top 10, worse than the bare word "lead" alone ever did.
+  Fixed by having the agent's retrieval step query with the compact,
+  already-extracted `ProductAttributes` JSON instead of raw spec text —
+  verified to match or beat spec-text retrieval on every case checked,
+  including ones that already worked. The residual weakness for the bare
+  word "铅"/"lead" with zero surrounding context is a genuine BGE-M3
+  embedding-space characteristic, not fixable by retrieval mechanics, and not
+  the practical failure mode anyway (`tests/test_retrieval.py`).
 - **abstention_accuracy = 0.0 at the retrieval layer** — a relevance floor
   can only measure topical similarity, not information sufficiency. A query
   that just says "no technical details provided" still scores 0.56–0.59
@@ -182,22 +208,11 @@ Two results worth understanding, not just citing:
   separate, deterministic check (`ProductAttributes.is_empty`) instead of
   relying on the retrieval threshold — and it works: verified live, the full
   agent correctly abstains on the same case this metric is measuring.
-- **fusion_weight is currently inert** at the shipped `relevance_floor=0.35`:
-  every value from 0.0 to 1.0 produced byte-identical eval metrics. Traced to
-  a real mechanism, not a bug in the sweep — the floor checks `dense_score`
-  specifically, so a chunk sparse search favors but dense search doesn't
-  independently rank has `dense_score=0` and gets filtered regardless of
-  weight. Confirmed by re-sweeping at `floor=0.0`, where fusion_weight changed
-  every metric. Documented in `config.py` for whoever revisits the floor's
-  dense-only anchoring.
 
 Cross-lingual retrieval — the hard requirement — was verified against the
 real corpus: Chinese queries for cadmium (镉) and hexavalent chromium (六价铬),
 and an English query for "low voltage equipment," each correctly retrieve the
-matching Russian clause at or near top-1 (`tests/test_retrieval.py`). A
-fourth pair (lead: 铅/lead → Свинец) is measurably weaker — real similarity
-(cosine ~0.38–0.43) that doesn't outrank corpus noise for this short, common
-word. Reported, not hidden.
+matching Russian clause at or near top-1 (`tests/test_retrieval.py`).
 
 ### Agent (Phase 5)
 
@@ -216,7 +231,7 @@ mocked (`tests/test_agent.py`, `tests/test_api.py`):
   reach the report — so this path is exercised deliberately, not left
   unverified).
 
-Two real defects were found by testing live and fixed, not assumed away —
+Four real defects were found by testing live and fixed, not assumed away —
 worth naming because they're the kind of thing that only shows up when you
 actually run the system:
 
@@ -228,30 +243,38 @@ actually run the system:
   bear — a real EAEU toy-safety regulation covers all toys regardless of
   power source. The regulation's one-line description in the prompt was too
   terse; rewritten to be explicit. Verified live afterward.
-
-One reasoning gap is left visible rather than patched over: on a live run,
-the agent concluded low-voltage safety didn't apply to an LED lamp by
-reasoning about the lamp's 5V DC *output* rather than its 100-240V AC
-*adapter* — the actual equipment in scope. That's a prompt-quality
-limitation for future iteration, not a code defect.
+- A test failed intermittently on an unambiguous case — DeepSeek's default
+  temperature let identical input reach different categorical conclusions
+  across runs. Pinned `temperature=0`; the previously-flaky test then passed
+  4/4 in a row. For a compliance system, consistency on identical input
+  matters as much as correctness.
+- The agent concluded low-voltage safety didn't apply to an LED lamp by
+  reasoning about the lamp's 5V DC *output* rather than its 100-240V AC
+  *adapter* — the actual equipment in scope. Fixed by making both the
+  ТР ТС 004/2011 prompt description and the general applicability-assessment
+  prompt explicit that a product can bundle multiple distinct electrical
+  components (device, adapter, battery, ...) and each should be assessed
+  separately. Verified live, consistent 3/3 on repeated runs; regression
+  assertion added to the existing test for this exact case.
 
 ## Limitations
 
-Stated plainly, not buried:
+Stated plainly, not buried. Three items that were listed here before —
+`fusion_weight` inertness, weak lead retrieval, and the adapter-vs-device
+voltage gap — were found, root-caused, fixed, and verified live; see the
+Retrieval and Agent sections above for what was actually wrong and what the
+fix was. What's left:
 
-- **Prompt quality has known gaps.** The adapter-vs-device voltage reasoning
-  gap above is real and unresolved. This system has not been extensively
-  prompt-tuned; it has been built correctly (structured outputs, citation
-  validation, retry-once-then-fail-loud) and tested against real cases, which
-  is a different thing from "tuned for accuracy."
-- **Retrieval recall is low (0.125) against the gold anchor clauses.**
-  Regulation-level signal (which regulations apply) is much stronger
-  (F1 0.757) than clause-level precision. The system will point you at the
-  right regulation reliably; the exact clause it cites may not always be the
-  single most canonical one a human expert would pick first.
-- **fusion_weight tuning is currently theoretical.** See above — it doesn't
-  move any measured metric at the shipped relevance floor. The dense channel
-  is carrying essentially all the useful signal right now.
+- **Prompt quality has not been extensively tuned beyond the specific gaps
+  found and fixed above.** Real cases were tested and real bugs were caught
+  this way, but that's a different thing from a systematic prompt-tuning
+  pass — more reasoning gaps than the ones already found likely exist.
+- **Retrieval recall is still moderate (0.250) against the gold anchor
+  clauses**, even after doubling it by fixing the fusion_weight bug.
+  Regulation-level signal (which regulations apply) is stronger than
+  clause-level precision — the system will point you at the right regulation
+  reliably; the exact clause it cites may not always be the single most
+  canonical one a human expert would pick first.
 - **No Langfuse trace has actually been inspected.** Tracing is wired
   (`@observe()`) and confirmed to degrade gracefully without credentials, but
   this environment has never had `LANGFUSE_PUBLIC_KEY`/`SECRET_KEY` set, so
