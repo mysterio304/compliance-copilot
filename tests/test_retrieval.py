@@ -149,3 +149,35 @@ async def test_hybrid_search_orders_hits_by_descending_fused_score(
     )
     scores = [hit.fused_score for hit in hits]
     assert scores == sorted(scores, reverse=True)
+
+
+async def test_fusion_weight_changes_results_at_shipped_relevance_floor(
+    session: AsyncSession, embedding_model: str
+) -> None:
+    """Regression test for a real bug: dense_score used to default to 0.0 for
+    any chunk found only via sparse search, so the relevance floor (checked
+    against dense_score) silently discarded a sparse-favored chunk's real
+    dense similarity and floor-filtered it regardless of fusion_weight —
+    making fusion_weight practically inert whenever the floor was active.
+    Fixed by looking up the real dense score for sparse-only discoveries
+    instead of assuming they have none."""
+    query = (
+        "Product: LED desk lamp, 5V DC input via USB-C adapter\n"
+        "100-240V AC 50/60Hz (adapter)\nMaterials: ABS housing, aluminium heat sink"
+    )
+    result_sets = {}
+    for fusion_weight in (0.0, 0.5, 1.0):
+        hits = await hybrid_search(
+            session,
+            query,
+            embedding_model,
+            top_k=10,
+            fusion_weight=fusion_weight,
+            relevance_floor=0.35,
+        )
+        result_sets[fusion_weight] = tuple(hit.clause_id for hit in hits)
+
+    assert len({result_sets[0.0], result_sets[0.5], result_sets[1.0]}) > 1, (
+        "fusion_weight produced identical results across 0.0/0.5/1.0 at the "
+        "shipped relevance_floor — the inertness bug may have regressed"
+    )

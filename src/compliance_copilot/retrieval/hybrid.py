@@ -51,6 +51,25 @@ async def _search_dense(
     return [(row.id, row.clause_id, row.document_id, row.text, 1 - row.distance) for row in result]
 
 
+async def _dense_scores_for_ids(
+    session: AsyncSession, query_dense: list[float], chunk_ids: list[str]
+) -> dict[str, float]:
+    """Real cosine similarity for specific chunks, regardless of whether they
+    placed in dense search's own top_k. Needed because a chunk sparse search
+    surfaces can have a real, floor-clearing dense similarity without ranking
+    highly enough in dense's independent top_k to appear in dense_ranked —
+    defaulting such a chunk's dense_score to 0.0 (as if it had none) silently
+    discards that real value and floor-filters it incorrectly."""
+    if not chunk_ids:
+        return {}
+    distance = ChunkRow.dense_embedding.cosine_distance(query_dense)
+    stmt = select(ChunkRow.id, distance.label("distance")).where(
+        ChunkRow.id.in_(chunk_ids), ChunkRow.dense_embedding.is_not(None)
+    )
+    result = await session.execute(stmt)
+    return {row.id: 1 - row.distance for row in result}
+
+
 async def _search_sparse(
     session: AsyncSession, query_sparse: SparseVector, top_k: int, regulation_code: str | None
 ) -> list[_RankedHit]:
@@ -87,12 +106,17 @@ async def hybrid_search(
     """Hybrid dense+sparse retrieval over BGE-M3 embeddings, fused with reciprocal
     rank fusion (fusion_weight favors dense at 1.0, sparse at 0.0).
 
-    The relevance floor is checked against each hit's dense cosine similarity —
-    the one bounded, well-understood signal here (sparse inner products and RRF
-    scores don't have a fixed scale to threshold against). A hit that never
-    appeared in the dense top_k has no dense score and fails the floor by
-    construction. If nothing clears the floor, this returns an empty list — the
-    caller reports insufficient evidence rather than surfacing a weak match.
+    The relevance floor is checked against each hit's real dense cosine
+    similarity — the one bounded, well-understood signal here (sparse inner
+    products and RRF scores don't have a fixed scale to threshold against).
+    A chunk sparse search surfaces but dense's own top_k doesn't include gets
+    a supplemental targeted lookup for its actual dense score rather than
+    being assumed to have none — otherwise the floor would filter it out
+    based on a fabricated 0.0 regardless of its real similarity, which also
+    made fusion_weight practically inert (a sparse-favored chunk could never
+    survive the floor to be re-ranked by fusion in the first place). If
+    nothing clears the floor, this returns an empty list — the caller reports
+    insufficient evidence rather than surfacing a weak match.
 
     regulation_code optionally scopes the search to one document (e.g. "ТР ТС
     004/2011") — used by the agent's per-regulation-family retrieval step so a
@@ -121,6 +145,11 @@ async def hybrid_search(
         )
         sparse_scores[chunk_id] = score
         meta[chunk_id] = (clause_id, document_id, text)
+
+    sparse_only_ids = [chunk_id for chunk_id in fused_scores if chunk_id not in dense_scores]
+    dense_scores.update(
+        await _dense_scores_for_ids(session, query_embedding.dense, sparse_only_ids)
+    )
 
     hits = [
         RetrievalHit(
