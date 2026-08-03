@@ -14,6 +14,7 @@ Usage: uv run python eval/run_eval.py [--cases-dir DIR] [--tolerance 0.05] [--up
 import argparse
 import asyncio
 import json
+import os
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -102,6 +103,31 @@ def print_metrics_table(
             print(f"{name:<28}{value_str:>10}{'-':>12}{'-':>10}")
 
 
+def format_metrics_markdown(
+    metrics: Mapping[str, float | None], baseline: Mapping[str, float] | None
+) -> str:
+    lines = ["| Metric | Value | Baseline | Δ |", "|---|---:|---:|---:|"]
+    for name, value in metrics.items():
+        value_str = f"{value:.3f}" if value is not None else "N/A"
+        if baseline and name in baseline and value is not None:
+            base_value = baseline[name]
+            delta = value - base_value
+            lines.append(f"| {name} | {value_str} | {base_value:.3f} | {delta:+.3f} |")
+        else:
+            lines.append(f"| {name} | {value_str} | - | - |")
+    return "\n".join(lines)
+
+
+def write_github_step_summary(markdown_table: str) -> None:
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return
+    with open(summary_path, "a", encoding="utf-8") as f:
+        f.write("## Eval metrics\n\n")
+        f.write(markdown_table)
+        f.write("\n")
+
+
 def check_regressions(
     metrics: Mapping[str, float | None], baseline: Mapping[str, float], tolerance: float
 ) -> list[str]:
@@ -154,6 +180,7 @@ async def main_async(args: argparse.Namespace) -> int:
         baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
 
     print_metrics_table(metrics, baseline)
+    write_github_step_summary(format_metrics_markdown(metrics, baseline))
     latest_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
 
     if baseline is None:
