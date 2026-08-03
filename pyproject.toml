@@ -48,7 +48,10 @@ src = ["src", "eval", "scripts", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "C4", "SIM", "N", "ASYNC"]
-ignore = []
+# B008: FastAPI's Depends()/Query()/etc in argument defaults is the framework's
+# idiomatic dependency-injection pattern, not the mutable-default-argument bug
+# this rule is designed to catch.
+ignore = ["B008"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["compliance_copilot"]
@@ -68,3 +71,6 @@ ignore_missing_imports = true
 testpaths = ["tests", "eval"]
 asyncio_mode = "auto"
 pythonpath = ["src", "."]
+markers = [
+    "llm: makes a real DeepSeek API call — needs DEEPSEEK_API_KEY, costs money, excluded from the default CI run (`pytest -m 'not llm'`)",
+]
