@@ -97,12 +97,21 @@ def make_plan_node(settings: Settings) -> NodeFn:
 
 def make_retrieve_node(settings: Settings, session: AsyncSession) -> NodeFn:
     async def retrieve_node(state: AgentState) -> dict[str, Any]:
+        # Query with the extracted attributes, not the raw spec_text. Found via
+        # live testing, not assumed: embedding a long prose spec as one query
+        # dilutes a specific fact (e.g. "contains lead") across everything else
+        # in the text, sometimes losing it entirely from the top-k where the
+        # bare fact alone would have surfaced it. The compact structured
+        # attributes carry the same substance with far less to dilute it —
+        # verified to match or beat spec_text retrieval on every case checked,
+        # including ones that already worked.
+        query = state["attributes"].model_dump_json()
         retrieved: dict[str, list[RetrievalHit]] = {}
         for regulation_code in state["planned_regulations"]:
             hits = await search_regulations(
                 session,
                 settings,
-                state["spec_text"],
+                query,
                 "auto",
                 settings.retrieval_top_k,
                 regulation_code=regulation_code,

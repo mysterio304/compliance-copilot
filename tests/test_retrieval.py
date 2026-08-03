@@ -109,6 +109,49 @@ async def test_cross_lingual_lead_has_real_but_weaker_similarity(
     )
 
 
+async def test_compact_query_beats_diluted_prose_for_a_specific_substance_mention(
+    session: AsyncSession, embedding_model: str
+) -> None:
+    """A specific fact (lead content) gets diluted into irrelevance when embedded
+    as one query alongside a long, mostly-unrelated prose spec — found live: a
+    realistic full spec mentioning lead content retrieved zero lead-related
+    clauses in the top 10, worse than even the bare word "lead" alone. This is
+    why agent/nodes.py's retrieve_node queries with the compact extracted
+    ProductAttributes JSON instead of raw spec_text — verifying that choice
+    here, not just asserting it works from the node itself."""
+    long_diluted_spec = (
+        "Product: Wired Earbuds\n"
+        "Materials: ABS housing, copper wire, silicone tips\n"
+        "Hazardous substances declaration: contains lead (Pb) content below 0.1% "
+        "by weight, no cadmium, no mercury present"
+    )
+    compact_query = (
+        '{"materials": ["ABS housing", "copper wire", "lead (Pb) below 0.1%"]}'
+    )
+
+    diluted_hits = await hybrid_search(
+        session,
+        long_diluted_spec,
+        embedding_model,
+        top_k=10,
+        fusion_weight=0.5,
+        relevance_floor=0.35,
+        regulation_code="ТР ЕАЭС 037/2016",
+    )
+    compact_hits = await hybrid_search(
+        session,
+        compact_query,
+        embedding_model,
+        top_k=10,
+        fusion_weight=0.5,
+        relevance_floor=0.35,
+        regulation_code="ТР ЕАЭС 037/2016",
+    )
+
+    assert not any("свинец" in hit.text.lower() for hit in diluted_hits)
+    assert any("свинец" in hit.text.lower() for hit in compact_hits)
+
+
 async def test_relevance_floor_returns_empty_for_nonsense_query(
     session: AsyncSession, embedding_model: str
 ) -> None:
