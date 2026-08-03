@@ -162,7 +162,12 @@ def make_assess_applicability_node(settings: Settings) -> NodeFn:
                 (
                     f"Decide whether {regulation_code} ({KNOWN_REGULATIONS[regulation_code]}) "
                     "applies to this product, given the product attributes and the candidate "
-                    f"clauses retrieved from that regulation below.{correction}\n\n"
+                    "clauses retrieved from that regulation below. A product described in the "
+                    "attributes may bundle multiple physically distinct electrical components "
+                    "(e.g. the device itself, a separate power adapter/charger/power supply, a "
+                    "removable battery) — assess each component that is plausibly in scope, not "
+                    "only the primary device, since a regulation can genuinely apply to one "
+                    f"component even when it doesn't apply to another.{correction}\n\n"
                     f"Candidate clauses:\n{clause_listing}"
                 ),
                 attrs.model_dump_json(),

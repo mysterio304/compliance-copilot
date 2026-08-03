@@ -7,7 +7,14 @@ from pydantic import BaseModel, Field
 KNOWN_REGULATIONS: dict[str, str] = {
     "ТР ТС 004/2011": (
         "safety of low-voltage equipment — electrical devices operating at "
-        "50-1000V AC or 75-1500V DC"
+        "50-1000V AC or 75-1500V DC. IMPORTANT: assess the voltage of every "
+        "electrical component the product ships with, not just the end device's "
+        "own operating voltage — a bundled power adapter/charger/power supply "
+        "that steps mains AC (e.g. 100-240V AC) down to the device's low output "
+        "voltage (e.g. 5V DC) is itself equipment operating in the regulated "
+        "range and is in scope, even when the end device's own output voltage "
+        "is well below it. Do not conclude 'not applicable' by looking only at "
+        "the device's output voltage when a mains-connected adapter is present."
     ),
     "ТР ТС 020/2011": (
         "electromagnetic compatibility — technical means that create or are "

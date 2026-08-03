@@ -67,6 +67,16 @@ async def test_agent_produces_findings_with_valid_citations_for_real_spec(
     # every finding survived validation (no errors on the terminal state)
     assert result.get("validation_errors") in (None, [])
 
+    # Regression check for a real, found-live reasoning bug: the agent used to
+    # conclude LVD doesn't apply by reasoning about the lamp's own 5V DC
+    # output rather than its 100-240V AC adapter — the actual equipment in
+    # scope. Verified fixed 3/3 on live runs before this assertion was added.
+    lvd_finding = next(
+        (f for f in report.findings if f.regulation_code == "ТР ТС 004/2011"), None
+    )
+    assert lvd_finding is not None
+    assert lvd_finding.applies is True
+
 
 @pytest.mark.llm
 async def test_agent_abstains_on_vague_spec(session: AsyncSession, settings: Settings) -> None:
