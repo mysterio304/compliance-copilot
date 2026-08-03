@@ -95,6 +95,7 @@ async def test_list_regulation_structure_empty_for_unknown_regulation(
     assert toc == []
 
 
+@pytest.mark.llm
 def test_extract_product_attributes_finds_real_values(settings: Settings) -> None:
     attrs = extract_product_attributes(
         settings,
@@ -105,6 +106,7 @@ def test_extract_product_attributes_finds_real_values(settings: Settings) -> Non
     assert not attrs.is_empty
 
 
+@pytest.mark.llm
 def test_extract_product_attributes_flags_vague_spec_as_empty(settings: Settings) -> None:
     attrs = extract_product_attributes(
         settings,

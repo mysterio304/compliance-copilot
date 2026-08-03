@@ -48,6 +48,7 @@ async def session(
         yield s
 
 
+@pytest.mark.llm
 async def test_agent_produces_findings_with_valid_citations_for_real_spec(
     session: AsyncSession, settings: Settings
 ) -> None:
@@ -67,6 +68,7 @@ async def test_agent_produces_findings_with_valid_citations_for_real_spec(
     assert result.get("validation_errors") in (None, [])
 
 
+@pytest.mark.llm
 async def test_agent_abstains_on_vague_spec(session: AsyncSession, settings: Settings) -> None:
     result = await run_agent(
         settings,
@@ -81,6 +83,7 @@ async def test_agent_abstains_on_vague_spec(session: AsyncSession, settings: Set
     assert result.get("planned_regulations") == []
 
 
+@pytest.mark.llm
 async def test_agent_excludes_toy_regulation_for_non_toy_despite_child_marketing(
     session: AsyncSession, settings: Settings
 ) -> None:
