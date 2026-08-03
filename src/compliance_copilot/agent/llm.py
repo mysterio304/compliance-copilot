@@ -41,6 +41,14 @@ def call_structured[T: BaseModel](
     A second failure raises StructuredOutputError rather than returning something
     unvalidated — callers must handle that explicitly, not have it hidden from
     them.
+
+    temperature=0: found via a live flaky test, not assumed — the same
+    unambiguous "plush teddy bear, no electronics" spec occasionally reasoned
+    its way to a different categorical conclusion across otherwise-identical
+    calls at the default temperature. Wrong-but-consistent is debuggable;
+    wrong-sometimes on identical input is a much worse property for a
+    compliance system to have, so consistency is worth the tradeoff even
+    though it doesn't fully eliminate provider-side sampling variance.
     """
     client = _client(settings)
     schema = response_model.model_json_schema()
@@ -73,6 +81,7 @@ def call_structured[T: BaseModel](
             model=settings.deepseek_model,
             messages=messages,
             response_format={"type": "json_object"},
+            temperature=0,
         )
         content = response.choices[0].message.content
         messages.append({"role": "assistant", "content": content or ""})
