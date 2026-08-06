@@ -25,6 +25,19 @@ services:
     env_file:
       - path: .env
         required: false
+    volumes:
+      # The image only COPYs src/, so the offline-side trees aren't in it. Mount
+      # them read-only to run eval and the ingestion scripts inside the container
+      # without a rebuild. Read-only because nothing here should be written from
+      # the container — eval/results/ is the exception, hence its own rw mount.
+      - ./eval:/app/eval:ro
+      - ./scripts:/app/scripts:ro
+      - ./data:/app/data:ro
+      - ./eval/results:/app/eval/results
+      # Without this the container re-downloads BGE-M3's ~4.3 GB of weights on
+      # its first embedding call after every recreate. The host cache already
+      # has them.
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
     ports:
       - "8000:8000"
     depends_on:
