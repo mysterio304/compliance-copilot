@@ -140,8 +140,21 @@ def make_retrieve_node(settings: Settings, session: AsyncSession) -> NodeFn:
 
 
 def _clause_listing(hits: list[RetrievalHit]) -> str:
+    # The polarity tag exists because clause text cannot carry it: an item from
+    # an exclusions annex and an item from the covered-products annex are both
+    # bare equipment lists, and without the tag the assessor was caught reading
+    # a covered-products item as an exclusion (and carving a desk lamp out of
+    # EMC with it). clause_path gives every hit its place in the document.
+    def tag(hit: RetrievalHit) -> str:
+        if hit.scope_half == "inclusion":
+            return " | [SCOPE — what the regulation COVERS]"
+        if hit.scope_half == "exclusion":
+            return " | [EXCLUSION — what the regulation does NOT cover]"
+        return ""
+
     return "\n".join(
-        f"- clause_id={hit.clause_id} | {hit.text[:MAX_CLAUSE_CHARS_FOR_ASSESSMENT]}"
+        f"- clause_id={hit.clause_id} | {hit.clause_path}{tag(hit)} | "
+        f"{hit.text[:MAX_CLAUSE_CHARS_FOR_ASSESSMENT]}"
         for hit in hits
     )
 
@@ -210,9 +223,12 @@ def _scope_prompt(regulation_code: str, clause_listing: str, correction: str) ->
         "A product may bundle several physically distinct components (the device itself, a "
         "separate mains adapter/charger/power supply, a removable battery). If the regulation "
         "reaches any one of them, it reaches the product — so a low-voltage device is in scope "
-        "through its mains adapter when the attributes say one is included. Judge only the "
-        "components the attributes actually state: do not assume an unstated mains adapter for "
-        "something described as battery-powered, PoE-powered, or supplied without one.\n\n"
+        "through its mains adapter when the attributes say one is included.\n\n"
+        "The attributes are the COMPLETE description of this product. Components that are "
+        "typical of such products but not stated do not exist for this assessment: no unstated "
+        "mains adapter for something described as battery- or PoE-powered, no unstated "
+        "electronics, relays or control circuits presumed into equipment whose stated "
+        "construction does not mention them.\n\n"
         "Cite the clause(s) your answer rests on. Keep reasoning to 2-3 sentences."
         f"{correction}\n\nCandidate clauses:\n{clause_listing}"
     )
@@ -223,17 +239,33 @@ def _exclusion_prompt(regulation_code: str, clause_listing: str, correction: str
         f"Question 2 of 2 about {regulation_code} ({KNOWN_REGULATIONS[regulation_code]}). That "
         "the regulation's positive scope reaches this product is already settled — do not "
         "revisit it.\n\n"
-        "Is the product carved back out by one of this regulation's named exclusions? At least "
-        "one clause below says what the regulation does NOT cover ('не распространяется на'), "
-        "usually as a single long clause listing unrelated categories а), б), в), … Read that "
-        "list to its end: the category that matches, if any, can be anywhere in it.\n\n"
-        "Exclusions are narrow. Answer excluded=true only when the product clearly falls into a "
-        "listed category, matching on substance rather than wording — the spec and the clause "
-        "describe the same thing differently and in different languages ('refurbished' is "
-        "'бывшие в употреблении'; a part 'for installation in vehicles' is equipment 'для "
-        "использования на … транспорте'). If nothing clearly matches, answer excluded=false: a "
-        "partial or arguable resemblance is not an exclusion.\n\n"
-        "Cite the exclusion clause you checked against. Keep reasoning to 2-3 sentences."
+        "Is the product carved back out by one of this regulation's named exclusions? The "
+        "exclusion clauses are EXACTLY the candidates marked [EXCLUSION] below — treat "
+        "nothing else as an exclusion. In particular, unmarked candidates listing kinds of "
+        "equipment are the regulation's covered-products list: matching one of those argues "
+        "FOR applicability and can never justify a carve-out. A regulation may have SEVERAL "
+        "exclusion clauses — an article carve-out AND a separate annex of excluded kinds — "
+        "and every one binds. Check the product against every category in every [EXCLUSION] "
+        "candidate, to the end of each list; being cleared by one exclusion clause does not "
+        "clear the others.\n\n"
+        "Report the result in matched_exclusion_category: the excluded category the product "
+        "falls under, quoted from the clause — or null if none matches. A category matches "
+        "when the product's own identity or stated purpose IS that category, in whatever "
+        "language either side uses ('refurbished' is 'бывшие в употреблении'). Judge the "
+        "match on the product's identity alone: if the product IS a thing the list names, it "
+        "is excluded, no matter how strongly its voltages, adapters or electronics would "
+        "otherwise argue for applicability. Topical resemblance without identity is not a "
+        "match.\n\n"
+        "Two reading rules. (1) The attributes are the COMPLETE description of the product. "
+        "When a category is qualified by the ABSENCE of something ('без активных электронных "
+        "цепей', 'не содержащее …'), judge that absence from the stated attributes alone: if "
+        "no such parts are stated, the condition is met. Components merely typical of such "
+        "products — control electronics, relays, drivers — do not exist for this assessment "
+        "unless stated, exactly as an unstated mains adapter is never presumed. (2) Component "
+        "carve-outs ('составные части', 'не предназначенные для самостоятельного применения') "
+        "match when the product is stated to be exclusively for installation into another "
+        "product.\n\n"
+        "Cite the exclusion clause(s) you checked against. Keep reasoning to 2-3 sentences."
         f"{correction}\n\nCandidate clauses:\n{clause_listing}"
     )
 
@@ -290,14 +322,21 @@ async def _assess_one_regulation(
             citations=_citations_for(hits, scope.cited_clause_ids),
         )
 
-    exclusion = await _majority_verdict(ask_exclusion, lambda assessment: assessment.excluded)
-    if exclusion.excluded:
+    # The verdict is derived from the match's presence rather than asked as its
+    # own boolean — see ExclusionAssessment for the live inversion that killed.
+    exclusion = await _majority_verdict(
+        ask_exclusion, lambda assessment: assessment.matched_exclusion_category is not None
+    )
+    if exclusion.matched_exclusion_category is not None:
         return ComplianceFinding(
             regulation_code=regulation_code,
             applies=False,
             # Cite the exclusion, not the scope clause: the exclusion is what
             # decided this verdict, and it's what a reader needs to check.
-            reasoning=f"Within the regulation's stated scope, but excluded: {exclusion.reasoning}",
+            reasoning=(
+                "Within the regulation's stated scope, but excluded — matches "
+                f"'{exclusion.matched_exclusion_category}': {exclusion.reasoning}"
+            ),
             citations=_citations_for(hits, exclusion.cited_clause_ids),
         )
 

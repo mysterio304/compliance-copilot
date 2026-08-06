@@ -301,3 +301,53 @@ async def test_ensure_scope_clause_supplies_the_clause_ranking_alone_misses(
     for clause_id in (scope_clause_id, exclusion_clause_id):
         hit = next(hit for hit in with_scope if hit.clause_id == clause_id)
         assert hit.dense_score > 0.0, f"{clause_id} should carry its real similarity, not a stub"
+
+
+async def test_ensure_scope_clause_expands_annex_exclusion_lists(
+    session: AsyncSession, embedding_model: str
+) -> None:
+    """ТР ТС 020/2011 keeps its exclusions in two places: the component
+    carve-out in Статья 1, пункт 2 and the EMC-passive equipment list in
+    Приложение 1. Supplying only the earliest exclusion clause reproduced three
+    audited false positives — an extension cord, a solar garden light and a
+    10 kV switchgear panel, each excluded by name in the annex the assessor
+    never saw. The annex header matches the exclusion signature; its items are
+    separate clauses and must come along with it, since the header alone names
+    the list without saying what is in it."""
+    extension_cord_attributes = json.dumps(
+        {
+            "product_name": "Удлинитель сетевой на 5 розеток",
+            "voltage": "220-240 В переменного тока",
+            "frequency": "50 Гц",
+            "materials": ["ПВХ", "медный проводник"],
+            "wireless_bands": [],
+            "has_batteries": False,
+            "intended_user": "бытовое использование",
+            "notes": "выключатель с подсветкой",
+        }
+    )
+    settings = get_settings()
+    hits = await hybrid_search(
+        session,
+        extension_cord_attributes,
+        embedding_model,
+        top_k=settings.retrieval_top_k,
+        fusion_weight=settings.retrieval_fusion_weight,
+        relevance_floor=settings.retrieval_relevance_floor,
+        regulation_code="ТР ТС 020/2011",
+        ensure_scope_clause=True,
+    )
+    hit_paths = {
+        row.clause_path
+        for row in (
+            await session.execute(
+                select(ClauseRow.clause_path).where(
+                    ClauseRow.id.in_([hit.clause_id for hit in hits])
+                )
+            )
+        ).all()
+    }
+    # The two annex items that exclude this very product: cable assemblies and
+    # switches/sockets without active electronic circuits.
+    assert "Приложение 1, пункт 1" in hit_paths
+    assert "Приложение 1, пункт 10" in hit_paths

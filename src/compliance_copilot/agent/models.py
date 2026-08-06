@@ -24,12 +24,16 @@ KNOWN_REGULATIONS: dict[str, str] = {
         "restriction of hazardous substances (RoHS) in electrical and electronic products"
     ),
     "ТР ТС 010/2011": (
-        "safety of machines and/or equipment — applies regardless of power "
-        "source. A machine does NOT need a motor, engine, or any electrical "
-        "drive to be in scope: hand-operated and purely mechanical equipment "
-        "with moving parts (cranks, gears, burrs, blades, presses) is squarely "
-        "covered. Do not conclude 'not applicable' merely because the product "
-        "is manual/unpowered"
+        "safety of machines and/or equipment. CAUTION: unlike the EU Machinery "
+        "Directive you may know, this regulation does NOT exempt hand-powered "
+        "equipment — never exclude something for being manual/unpowered. The "
+        "test is PURPOSE, not power (Статья 2): a machine is interconnected "
+        "parts, at least one moving, assembled to work on material — "
+        "'обработки, переработки, перемещения или упаковки материала'. A "
+        "motorised toy moving only for play works on no material and is not a "
+        "machine (toy safety covers it). A hand-cranked grinder, press or "
+        "drill that processes material IS a machine and IS in scope, however "
+        "unpowered"
     ),
     "ТР ТС 008/2011": (
         "safety of toys — applies to ALL products intended for children's play, "
@@ -75,9 +79,24 @@ class ExclusionAssessment(BaseModel):
     look for exclusions swung it the other way, dropping the regulation from
     products it genuinely covers. Two one-directional questions combined in code
     (`applies = in_scope and not excluded`) have no such balance to lose.
+
+    There is deliberately no `excluded: bool` here. When there was one, a live
+    trace caught the model reasoning "the product is clearly a medical device,
+    it falls under this exclusion" while setting the boolean to false — the
+    conclusion and the flag came apart, and the flag is what the code acted on.
+    Asking instead for the matched category and deriving the verdict from its
+    presence makes that inversion unrepresentable: naming a match *is* the
+    positive verdict, and there is no second place for the answer to disagree
+    with itself.
     """
 
-    excluded: bool
+    matched_exclusion_category: str | None = Field(
+        description=(
+            "The excluded category the product falls under, quoted or closely "
+            "paraphrased from an exclusion clause among the candidates — or null "
+            "if no listed category matches the product"
+        )
+    )
     reasoning: str
     cited_clause_ids: list[str] = Field(
         min_length=1,
