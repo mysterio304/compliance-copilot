@@ -435,16 +435,37 @@ fix was. What's left:
   | precision (assertions correct) | 77.5% – 81.6% (±4 pts) |
   | **cases fully correct** | **59% – 68% (±9 pts)** |
 
-  Two of 22 cases account for all of it (case_006, case_012), both on genuinely
-  borderline verdicts. The practical consequences: *cases fully correct* is too
-  noisy to judge a change by — its ±9 points exceeds most effects worth
-  chasing, and the 68%-vs-68% comparison that motivated this measurement was
-  indeed inside it. `regulation_set_f1` and recall are the metrics to compare
-  on; the harness's 0.05 default tolerance sits about 3× above f1's noise,
-  which is roughly right. For a compliance system, identical input reaching
-  different conclusions is also a product defect in its own right and not only
-  a measurement problem — majority-of-three voting on the assessor would
-  stabilise both offending cases, at 3× the calls on that node.
+  Two of 22 cases accounted for all of it (case_006, case_012), both on
+  genuinely borderline verdicts. Because identical input reaching different
+  conclusions is a product defect in a compliance system and not only a
+  measurement problem, the assessor now decides each of its two questions by
+  majority vote (`_majority_verdict`). Re-measured the same way, three runs
+  with voting:
+
+  | Metric | Without voting | With voting |
+  |---|---|---|
+  | unstable cases | 2 of 22 | 1 of 22 |
+  | cases fully correct | 13 / 14 / 15 | **14 / 14 / 14** |
+  | regulation_set_f1 spread | 0.017 | **0.007** |
+  | citation_precision spread | 0.029 | **0.012** |
+  | wall clock per run | ~5:10–5:41 | ~5:24–5:36 |
+
+  The headline metric became deterministic across three runs, and the mean did
+  not move (14 either way) — voting buys consistency, not accuracy, which is
+  what it was for. Two samples run concurrently and a third is fetched only to
+  break a tie, so latency stays near a single call and the usual cost is two
+  calls rather than three.
+
+  What remains: case_012 still varies, and case_006's stabilising cannot be
+  fully credited to voting — its flip was traced to the planner, which the
+  vote does not cover, so three quiet runs may just mean a rare event did not
+  recur. Voting the planner is the cheaper of the two to add if that matters
+  (one call per case, against two per regulation).
+
+  Independent of noise, `regulation_set_f1` and recall remain the metrics to
+  compare configurations on; *cases fully correct* was too coarse to judge a
+  change by even before voting, and the harness's 0.05 default tolerance sits
+  comfortably above f1's residual spread.
 - **Prompt quality has not been extensively tuned beyond the specific gaps
   found and fixed above.** Real cases were tested and real bugs were caught
   this way, but that's a different thing from a systematic prompt-tuning

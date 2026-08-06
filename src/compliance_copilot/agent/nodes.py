@@ -165,6 +165,40 @@ def _check_cited_ids(cited: list[str], allowed: set[str]) -> None:
         raise ValueError(f"cited_clause_ids contains ids not in the provided candidates: {unknown}")
 
 
+async def _majority_verdict[T](
+    make_call: Callable[[], Awaitable[T]], verdict_of: Callable[[T], bool]
+) -> T:
+    """Best of three on the boolean each assessment turns on, returning the
+    winning response whole so its reasoning and citations stay consistent with
+    the verdict reported.
+
+    `temperature=0` does not make DeepSeek deterministic — it is MoE, and
+    provider-side routing varies with batching. Measured over three identical
+    runs of the 22 gold cases, 2 of them changed answer, both on borderline
+    verdicts. Identical input reaching different conclusions is a defect in a
+    compliance system regardless of which answer is right, so the assessor's
+    two questions are decided by vote rather than by a single sample.
+
+    Only two calls are made up front: if they agree they are the majority
+    already, whatever a third would have said. The third is a tiebreak, so the
+    usual cost is 2 calls, not 3. Both run concurrently, keeping latency at
+    roughly one call.
+
+    One call failing validation no longer sinks the assessment either — the
+    surviving response is used, unvoted. That is strictly better than the
+    single-call version, which had nothing to fall back on.
+    """
+    outcomes = await asyncio.gather(make_call(), make_call(), return_exceptions=True)
+    succeeded = [outcome for outcome in outcomes if not isinstance(outcome, BaseException)]
+    if not succeeded:
+        raise next(outcome for outcome in outcomes if isinstance(outcome, BaseException))
+    if len(succeeded) == 1 or verdict_of(succeeded[0]) == verdict_of(succeeded[1]):
+        return succeeded[0]
+
+    tiebreak = await make_call()
+    return succeeded[0] if verdict_of(tiebreak) == verdict_of(succeeded[0]) else succeeded[1]
+
+
 def _scope_prompt(regulation_code: str, clause_listing: str, correction: str) -> str:
     return (
         f"Question 1 of 2 about {regulation_code} ({KNOWN_REGULATIONS[regulation_code]}).\n\n"
@@ -227,14 +261,27 @@ async def _assess_one_regulation(
     def check_exclusion(assessment: ExclusionAssessment) -> None:
         _check_cited_ids(assessment.cited_clause_ids, allowed_ids)
 
-    scope = await asyncio.to_thread(
-        call_structured,
-        settings,
-        _scope_prompt(regulation_code, listing, correction),
-        attributes_json,
-        ScopeAssessment,
-        extra_validate=check_scope,
-    )
+    async def ask_scope() -> ScopeAssessment:
+        return await asyncio.to_thread(
+            call_structured,
+            settings,
+            _scope_prompt(regulation_code, listing, correction),
+            attributes_json,
+            ScopeAssessment,
+            extra_validate=check_scope,
+        )
+
+    async def ask_exclusion() -> ExclusionAssessment:
+        return await asyncio.to_thread(
+            call_structured,
+            settings,
+            _exclusion_prompt(regulation_code, listing, correction),
+            attributes_json,
+            ExclusionAssessment,
+            extra_validate=check_exclusion,
+        )
+
+    scope = await _majority_verdict(ask_scope, lambda assessment: assessment.in_scope)
     if not scope.in_scope:
         return ComplianceFinding(
             regulation_code=regulation_code,
@@ -243,14 +290,7 @@ async def _assess_one_regulation(
             citations=_citations_for(hits, scope.cited_clause_ids),
         )
 
-    exclusion = await asyncio.to_thread(
-        call_structured,
-        settings,
-        _exclusion_prompt(regulation_code, listing, correction),
-        attributes_json,
-        ExclusionAssessment,
-        extra_validate=check_exclusion,
-    )
+    exclusion = await _majority_verdict(ask_exclusion, lambda assessment: assessment.excluded)
     if exclusion.excluded:
         return ComplianceFinding(
             regulation_code=regulation_code,

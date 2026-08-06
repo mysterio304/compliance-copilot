@@ -1,7 +1,7 @@
 {
   "retrieval_recall_at_k": 0.4166666666666667,
-  "citation_precision": 0.7058201058201058,
-  "regulation_set_f1": 0.7528571428571429,
+  "citation_precision": 0.7150793650793651,
+  "regulation_set_f1": 0.76,
   "false_positive_rate": 0.0392156862745098,
   "abstention_accuracy": 1.0
 }
