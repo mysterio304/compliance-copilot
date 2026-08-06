@@ -1,0 +1,17 @@
+id: case_017
+input_spec: |
+  Product: bare PCB assemblies, model XR-4400
+  Description: control boards intended solely for integration into industrial
+    CNC machining centres by the OEM; not sold separately to end users
+  Operating voltage: 24V DC supplied by host machine
+language: en
+expected_regulations: []
+expected_clauses:
+  - doc: tr_eaes_037_2016
+    clause: "пункт 6"
+must_not_return: ["ТР ЕАЭС 037/2016", "ТР ТС 004/2011", "ТР ТС 008/2011"]
+notes: >
+  Clause 6б excludes items intended solely as components of equipment not
+  listed in Annex 1. 24V DC is also below the LVD floor. Component-versus-
+  finished-product is one of the most common real disputes in certification,
+  and a keyword system will treat any PCB as in scope.

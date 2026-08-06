@@ -1,0 +1,18 @@
+id: case_018
+input_spec: |
+  Product: 12V automotive LED headlight assembly
+  Application: designed exclusively for installation in passenger vehicles
+  Input: 12V DC from vehicle electrical system
+  Materials: polycarbonate lens, aluminium heatsink, LED array
+language: en
+expected_regulations: []
+expected_clauses:
+  - doc: tr_eaes_037_2016
+    clause: "пункт 6"
+must_not_return: ["ТР ЕАЭС 037/2016", "ТР ТС 004/2011", "ТР ТС 020/2011"]
+notes: >
+  Clause 6е excludes equipment intended exclusively for use on air, water,
+  ground and underground transport. Automotive components fall under separate
+  vehicle regulations outside this corpus. The word "LED" and "headlight" will
+  tempt retrieval toward clause 46 (lighting equipment) — that pull must lose
+  to the exclusion.

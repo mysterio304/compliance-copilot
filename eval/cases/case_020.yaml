@@ -1,0 +1,19 @@
+id: case_020
+input_spec: |
+  Наименование: Удлинитель сетевой на 5 розеток
+  Входное напряжение: 220-240 В переменного тока, 50 Гц, 10 А
+  Длина кабеля: 3 м, сечение 3x1.0 мм2
+  Материалы: корпус ПВХ, медный проводник
+  Наличие выключателя: да, с подсветкой
+  Назначение: бытовое использование
+language: ru
+expected_regulations: ["ТР ТС 004/2011", "ТР ЕАЭС 037/2016"]
+expected_clauses:
+  - doc: tr_eaes_037_2016
+    clause: "пункт 50"
+must_not_return: ["ТР ТС 008/2011", "ТР ТС 010/2011"]
+notes: >
+  Russian-language input — the third language in the corpus, so far untested
+  as a query language. Clause 50 of 037/2016 covers cables and cords rated at
+  or below 500V. Also checks monolingual Russian retrieval, which should be
+  the easiest path and therefore the highest-scoring baseline.

@@ -1,0 +1,16 @@
+id: case_011
+input_spec: |
+  Product: PoE network switch
+  Input: 48V DC via Power-over-Ethernet, no mains adapter supplied
+  Materials: steel chassis, PCB assemblies
+  Wireless: none
+  Intended use: office network rack, professional installation
+language: en
+expected_regulations: ["ТР ТС 020/2011", "ТР ЕАЭС 037/2016"]
+expected_clauses: []
+must_not_return: ["ТР ТС 004/2011", "ТР ТС 008/2011", "ТР ТС 010/2011"]
+notes: >
+  Precision test on the LVD threshold. ТР ТС 004/2011 covers 50-1000V AC and
+  75-1500V DC. At 48V DC the device sits below the DC floor, so LVD must not
+  fire. A system that pattern-matches "electrical device, has voltage" will
+  wrongly apply it. EMC and RoHS still apply.
