@@ -20,9 +20,11 @@ wheels/
 .pytest_cache/
 .ruff_cache/
 
-# Eval outputs
+# Eval outputs — per-run *_latest.json stay local; the baselines are the
+# committed reference each run is gated against, so they have to be tracked.
 eval/results/*.json
 !eval/results/baseline.json
+!eval/results/agent_baseline.json
 
 # Ingestion output — regenerate with scripts/ingest_corpus.py, don't commit
 data/processed/*.json

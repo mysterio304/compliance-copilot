@@ -1,19 +1,37 @@
-"""Metrics for the (pre-agent, Phase 4) retrieval-only baseline.
+"""The five metric definitions, shared by both evaluation harnesses.
 
-There is no agent yet — no LLM assembling a ComplianceReport, no citations in
-the Phase 1 schema sense. Each metric here is defined against what retrieval
-alone produces for a case: the top-k hybrid_search hits for the whole
-input_spec, resolved to (regulation_code, clause_path) via the clauses table.
+Each metric is expressed against the `Prediction` protocol below rather than a
+concrete type, because two different layers get scored with them:
 
-"Citation precision" in particular needs an explicit interpretation before an
-agent exists to generate citations: a retrieved clause counts as "supporting
-the claim" if it comes from a regulation in the case's expected_regulations
-list. That's a proxy — once Phase 5's agent exists and actually emits
-Citation objects, this metric should be recomputed against real citations,
-not retrieval hits standing in for them.
+- eval/run_eval.py (Phase 4, retrieval-only): predictions are the top-k
+  hybrid_search hits for the whole input_spec, resolved to
+  (regulation_code, clause_path) via the clauses table. Fast and free — no LLM
+  in the loop — which is what makes it usable as the CI gate.
+- eval/run_eval_agent.py (Phase 5+): predictions are what the agent actually
+  concluded, with real Citation objects behind them.
+
+Which layer you score changes what a number means, and two of these metrics are
+only meaningful at the agent layer. Retrieval makes no applicability decision —
+it returns the k nearest chunks and nothing else — so at that layer
+`false_positive_rate` counts "a clause from a forbidden regulation was among the
+top-k" (not an assertion that it applies), and `abstention_accuracy` can only
+ask whether anything cleared the relevance floor, which measures topical
+similarity rather than whether the spec carried enough information to decide.
+Measured on the corpus, the two insufficient-information cases score *higher*
+than a genuine product spec does, so no floor value separates them; the agent's
+deterministic ProductAttributes.is_empty check is what actually implements
+abstention. Read the retrieval-layer values for those two metrics as
+diagnostics of the retrieval distribution, not as system behavior.
+
+`citation_precision` is likewise a proxy at the retrieval layer — a retrieved
+clause counts as "supporting the claim" if it comes from a regulation in the
+case's expected_regulations list — and a direct measurement at the agent layer,
+where real citations exist to score.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Protocol
 
 from eval.gold_case import GoldCase
 
@@ -23,6 +41,25 @@ class RetrievedClause:
     document_id: str
     regulation_code: str
     clause_path: str
+
+
+class Prediction(Protocol):
+    """What the five metrics below need from a prediction, regardless of which
+    layer produced it. The retrieval harness supplies CasePrediction; the agent
+    harness supplies AgentPrediction (eval/agent_metrics.py), whose
+    predicted_regulations comes from findings the agent actually asserted rather
+    than from the regulations its citations happen to belong to. Keeping the
+    metric definitions parameterized over this protocol is what lets both
+    harnesses be scored by the same code instead of two copies that drift."""
+
+    @property
+    def retrieved(self) -> list[RetrievedClause]: ...
+
+    @property
+    def abstained(self) -> bool: ...
+
+    @property
+    def predicted_regulations(self) -> set[str]: ...
 
 
 @dataclass(frozen=True)
@@ -36,10 +73,10 @@ class CasePrediction:
         return {clause.regulation_code for clause in self.retrieved}
 
 
-CaseAndPrediction = tuple[GoldCase, CasePrediction]
+CaseAndPrediction = tuple[GoldCase, Prediction]
 
 
-def retrieval_recall_at_k(pairs: list[CaseAndPrediction]) -> float | None:
+def retrieval_recall_at_k(pairs: Sequence[CaseAndPrediction]) -> float | None:
     """Of the cases with at least one gold expected_clause, what fraction of
     those clauses (by document_id + clause_path) appear among the retrieved
     hits? Macro-averaged over cases; cases with no expected_clauses (e.g.
@@ -58,7 +95,7 @@ def retrieval_recall_at_k(pairs: list[CaseAndPrediction]) -> float | None:
     return sum(scores) / len(scores) if scores else None
 
 
-def citation_precision(pairs: list[CaseAndPrediction]) -> float | None:
+def citation_precision(pairs: Sequence[CaseAndPrediction]) -> float | None:
     """Of the clauses retrieval actually returned, what fraction come from a
     regulation that genuinely applies (per expected_regulations)? See module
     docstring — this is a retrieval-only proxy for the citation-precision
@@ -75,7 +112,7 @@ def citation_precision(pairs: list[CaseAndPrediction]) -> float | None:
     return sum(scores) / len(scores) if scores else None
 
 
-def regulation_set_f1(pairs: list[CaseAndPrediction]) -> float | None:
+def regulation_set_f1(pairs: Sequence[CaseAndPrediction]) -> float | None:
     """Standard set F1 between predicted and expected regulation codes,
     macro-averaged. Abstention cases (empty expected_regulations by design)
     are excluded — that outcome is measured by abstention_accuracy instead."""
@@ -99,7 +136,7 @@ def regulation_set_f1(pairs: list[CaseAndPrediction]) -> float | None:
     return sum(scores) / len(scores) if scores else None
 
 
-def false_positive_rate(pairs: list[CaseAndPrediction]) -> float | None:
+def false_positive_rate(pairs: Sequence[CaseAndPrediction]) -> float | None:
     """Across every (case, forbidden regulation) pair drawn from must_not_return,
     how often does the forbidden regulation show up in what was predicted?"""
     total = 0
@@ -112,7 +149,7 @@ def false_positive_rate(pairs: list[CaseAndPrediction]) -> float | None:
     return triggered / total if total else None
 
 
-def abstention_accuracy(pairs: list[CaseAndPrediction]) -> float | None:
+def abstention_accuracy(pairs: Sequence[CaseAndPrediction]) -> float | None:
     """Of the cases gold-labeled as insufficient-information, how many did
     retrieval actually decline (nothing cleared the relevance floor)?"""
     abstain_cases = [(case, prediction) for case, prediction in pairs if case.expect_abstain]
@@ -122,7 +159,7 @@ def abstention_accuracy(pairs: list[CaseAndPrediction]) -> float | None:
     return correct / len(abstain_cases)
 
 
-def compute_all_metrics(pairs: list[CaseAndPrediction]) -> dict[str, float | None]:
+def compute_all_metrics(pairs: Sequence[CaseAndPrediction]) -> dict[str, float | None]:
     return {
         "retrieval_recall_at_k": retrieval_recall_at_k(pairs),
         "citation_precision": citation_precision(pairs),
