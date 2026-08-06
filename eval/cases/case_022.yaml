@@ -8,10 +8,12 @@ language: en
 expected_regulations: []
 expected_clauses:
   - doc: tr_eaes_037_2016
-    clause: "пункт 6"
-must_not_return: ["ТР ТС 004/2011", "ТР ЕАЭС 037/2016", "ТР ТС 008/2011"]
+    clause: "Раздел I, пункт 3"
+must_not_return: ["ТР ТС 004/2011", "ТР ЕАЭС 037/2016", "ТР ТС 008/2011", "ТР ТС 020/2011"]
 notes: >
   Upper-bound test, mirroring case_011's lower bound. 10 kV exceeds both the
   LVD ceiling (1000V AC) and 037/2016's clause 6а threshold. Correct behaviour
   is to cite both scope limits and report that the applicable high-voltage
   framework is outside corpus coverage.
+  Verdict on the 020/2011 dispute: not applicable.
+  Приложение 1, пункт 6 excludes high-voltage equipment whose only interference sources are localised insulation defects, provided it contains no active electronic parts — steel enclosure, epoxy insulators and busbars are exactly that.

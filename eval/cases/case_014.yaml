@@ -8,10 +8,12 @@ language: en
 expected_regulations: []
 expected_clauses:
   - doc: tr_eaes_037_2016
-    clause: "пункт 6"
-must_not_return: ["ТР ЕАЭС 037/2016", "ТР ТС 008/2011", "ТР ТС 010/2011"]
+    clause: "Раздел I, пункт 3"
+must_not_return: ["ТР ЕАЭС 037/2016", "ТР ТС 008/2011", "ТР ТС 010/2011", "ТР ТС 004/2011"]
 notes: >
   Clause 6к excludes medical devices from 037/2016; medical devices fall under
   a separate EAEU regime not in this corpus. Correct behaviour is close to
   abstention: cite the exclusion, state that the applicable framework is
   outside corpus coverage, do not invent findings.
+  Verdict on the 004/2011 dispute: not applicable despite the stated 100-240V adapter.
+  Статья 1, пункт 2 excludes "изделия медицинского назначения" verbatim, with no carve-back for their power supplies.

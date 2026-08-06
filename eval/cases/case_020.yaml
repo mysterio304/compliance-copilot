@@ -10,10 +10,12 @@ language: ru
 expected_regulations: ["ТР ТС 004/2011", "ТР ЕАЭС 037/2016"]
 expected_clauses:
   - doc: tr_eaes_037_2016
-    clause: "пункт 50"
-must_not_return: ["ТР ТС 008/2011", "ТР ТС 010/2011"]
+    clause: "Приложение 1, пункт 10"
+must_not_return: ["ТР ТС 008/2011", "ТР ТС 010/2011", "ТР ТС 020/2011"]
 notes: >
   Russian-language input — the third language in the corpus, so far untested
   as a query language. Clause 50 of 037/2016 covers cables and cords rated at
   or below 500V. Also checks monolingual Russian retrieval, which should be
   the easiest path and therefore the highest-scoring baseline.
+  Verdict on the 020/2011 dispute: not applicable.
+  Приложение 1 excludes cable assemblies (пункт 1) and plugs, sockets and switches without active electronic circuits (пункт 10) as EMC-passive.

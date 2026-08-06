@@ -8,7 +8,7 @@ language: en
 expected_regulations: []
 expected_clauses:
   - doc: tr_eaes_037_2016
-    clause: "пункт 50"
+    clause: "Приложение 1, пункт 10"
 must_not_return: ["ТР ЕАЭС 037/2016", "ТР ТС 004/2011", "ТР ТС 020/2011"]
 notes: >
   Clause 50 covers cables and cords but explicitly carves out fibre-optic

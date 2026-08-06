@@ -9,8 +9,8 @@ language: en
 expected_regulations: ["ТР ТС 008/2011", "ТР ТС 020/2011"]
 expected_clauses:
   - doc: tr_eaes_037_2016
-    clause: "пункт 6"
-must_not_return: ["ТР ЕАЭС 037/2016", "ТР ТС 004/2011"]
+    clause: "Раздел I, пункт 3"
+must_not_return: ["ТР ЕАЭС 037/2016", "ТР ТС 004/2011", "ТР ТС 010/2011"]
 notes: >
   The highest-value case in this batch. ТР ЕАЭС 037/2016 clause 6в explicitly
   excludes "игрушки электрические" from its own scope. So an electric toy is
@@ -18,3 +18,6 @@ notes: >
   obviously electronic. Tests whether the agent reads exclusion lists or only
   inclusion lists. Note the expected clause is the exclusion itself: correct
   behaviour cites clause 6 to justify NOT applying 037/2016.
+  Verdict on the 010/2011 dispute: not applicable.
+  Статья 2 defines машина by purpose — parts driven together "для конкретного применения (например, обработки, переработки, перемещения или упаковки материала)".
+  A toy robot processes no material, so moving parts alone do not put it in scope.

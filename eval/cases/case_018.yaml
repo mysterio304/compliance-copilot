@@ -8,7 +8,7 @@ language: en
 expected_regulations: []
 expected_clauses:
   - doc: tr_eaes_037_2016
-    clause: "пункт 6"
+    clause: "Раздел I, пункт 3"
 must_not_return: ["ТР ЕАЭС 037/2016", "ТР ТС 004/2011", "ТР ТС 020/2011"]
 notes: >
   Clause 6е excludes equipment intended exclusively for use on air, water,
