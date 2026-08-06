@@ -1,0 +1,17 @@
+id: case_021
+input_spec: |
+  Product: fibre-optic patch cables, LC-LC duplex, 3m
+  Construction: glass optical fibre core, LSZH jacket
+  Electrical: none — passive optical, carries no current
+  Intended use: data centre interconnect
+language: en
+expected_regulations: []
+expected_clauses:
+  - doc: tr_eaes_037_2016
+    clause: "Приложение 1, пункт 10"
+must_not_return: ["ТР ЕАЭС 037/2016", "ТР ТС 004/2011", "ТР ТС 020/2011"]
+notes: >
+  Clause 50 covers cables and cords but explicitly carves out fibre-optic
+  cables ("за исключением волоконно-оптических кабелей"). This is an exclusion
+  nested inside an inclusion — the hardest kind for a retrieval system, since
+  the clause text will match strongly on "кабели" before the exception is read.

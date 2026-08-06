@@ -12,7 +12,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from compliance_copilot.agent.graph import run_agent
-from compliance_copilot.agent.nodes import finalize_partial_report_node, make_validate_node
+from compliance_copilot.agent.llm import StructuredOutputError
+from compliance_copilot.agent.models import ScopeAssessment
+from compliance_copilot.agent.nodes import (
+    _majority_verdict,
+    finalize_partial_report_node,
+    make_validate_node,
+)
 from compliance_copilot.config import Settings, get_settings
 from compliance_copilot.db.models import ChunkRow
 from compliance_copilot.db.session import make_engine, make_session_factory
@@ -71,9 +77,7 @@ async def test_agent_produces_findings_with_valid_citations_for_real_spec(
     # conclude LVD doesn't apply by reasoning about the lamp's own 5V DC
     # output rather than its 100-240V AC adapter — the actual equipment in
     # scope. Verified fixed 3/3 on live runs before this assertion was added.
-    lvd_finding = next(
-        (f for f in report.findings if f.regulation_code == "ТР ТС 004/2011"), None
-    )
+    lvd_finding = next((f for f in report.findings if f.regulation_code == "ТР ТС 004/2011"), None)
     assert lvd_finding is not None
     assert lvd_finding.applies is True
 
@@ -181,3 +185,62 @@ async def test_finalize_partial_report_drops_invalid_findings_and_explains_why()
     assert len(partial_report.findings) == 1
     assert partial_report.findings[0].regulation_code == "ТР ТС 020/2011"
     assert any("dropped" in q for q in partial_report.unresolved_questions)
+
+
+class _CountingCaller:
+    """Returns the queued verdicts in order, counting how many calls were made
+    — the call count is the point of these tests as much as the verdict is."""
+
+    def __init__(self, verdicts: list[bool | type[Exception]]) -> None:
+        self.verdicts = verdicts
+        self.calls = 0
+
+    async def __call__(self) -> ScopeAssessment:
+        verdict = self.verdicts[self.calls]
+        self.calls += 1
+        if isinstance(verdict, type):
+            raise verdict("synthetic failure")
+        return ScopeAssessment(
+            in_scope=verdict, reasoning=f"call {self.calls}", cited_clause_ids=["c__0"]
+        )
+
+
+async def test_majority_verdict_stops_at_two_when_they_agree() -> None:
+    # Two agreeing calls are already the majority of three, so the third would
+    # cost a request without being able to change the outcome.
+    caller = _CountingCaller([True, True, False])
+    result = await _majority_verdict(caller, lambda a: a.in_scope)
+    assert result.in_scope is True
+    assert caller.calls == 2
+
+
+async def test_majority_verdict_breaks_a_tie_with_a_third_call() -> None:
+    caller = _CountingCaller([True, False, False])
+    result = await _majority_verdict(caller, lambda a: a.in_scope)
+    assert result.in_scope is False
+    assert caller.calls == 3
+
+
+async def test_majority_verdict_returns_the_winning_response_whole() -> None:
+    """The reasoning and citations reported must be the ones belonging to the
+    verdict reported — a report that cites the losing side's evidence would be
+    worse than either answer on its own."""
+    caller = _CountingCaller([False, True, True])
+    result = await _majority_verdict(caller, lambda a: a.in_scope)
+    assert result.in_scope is True
+    assert result.reasoning == "call 2"
+
+
+async def test_majority_verdict_survives_one_failed_call() -> None:
+    # Previously a single StructuredOutputError sank the whole assessment;
+    # with two samples in flight, one surviving response is enough.
+    caller = _CountingCaller([StructuredOutputError, True])
+    result = await _majority_verdict(caller, lambda a: a.in_scope)
+    assert result.in_scope is True
+    assert caller.calls == 2
+
+
+async def test_majority_verdict_raises_when_every_call_fails() -> None:
+    caller = _CountingCaller([StructuredOutputError, StructuredOutputError])
+    with pytest.raises(StructuredOutputError):
+        await _majority_verdict(caller, lambda a: a.in_scope)

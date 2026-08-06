@@ -1,0 +1,16 @@
+id: case_015
+input_spec: |
+  Product: benchtop digital multimeter, 6.5-digit
+  Input: 100-240V AC, 50/60Hz
+  Function: measuring instrument, calibrated, traceable to national standards
+  Materials: metal chassis, PCB
+language: en
+expected_regulations: ["ТР ТС 004/2011", "ТР ТС 020/2011"]
+expected_clauses:
+  - doc: tr_eaes_037_2016
+    clause: "Раздел I, пункт 3"
+must_not_return: ["ТР ЕАЭС 037/2016", "ТР ТС 008/2011"]
+notes: >
+  Clause 6и excludes measuring instruments ("средства измерений") from
+  037/2016, but LVD and EMC still apply to the mains-powered instrument.
+  A partial-exclusion case: some regulations fire, one specifically does not.

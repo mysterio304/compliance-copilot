@@ -1,0 +1,16 @@
+id: case_019
+input_spec: |
+  Product: benchtop drill press
+  Motor: 550W induction motor, 220-240V AC, 50Hz
+  Moving parts: rotating spindle, adjustable belt drive, chuck
+  Materials: cast iron base, steel column
+  Intended use: workshop, trained operators
+language: en
+expected_regulations: ["ТР ТС 010/2011", "ТР ТС 004/2011", "ТР ТС 020/2011", "ТР ЕАЭС 037/2016"]
+expected_clauses: []
+must_not_return: ["ТР ТС 008/2011"]
+notes: >
+  Maximum-overlap case: mains voltage, rotating machinery, induction motor
+  producing EMC emissions, electronic content. All four should fire together.
+  Tests that the agent does not stop after finding one or two applicable
+  regulations.

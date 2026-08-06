@@ -4,6 +4,7 @@ WORKDIR /app
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
+    UV_HTTP_TIMEOUT=120 \
     PATH="/app/.venv/bin:$PATH"
 
 # Install deps first, separately from source, so code edits don't bust the layer cache.

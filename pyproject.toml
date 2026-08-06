@@ -20,15 +20,40 @@ dependencies = [
     "python-multipart>=0.0.32",
     "pyyaml>=6.0.3",
     "sqlalchemy[asyncio]>=2.0.51",
+    # torch/torchvision arrive transitively (flagembedding, docling), but uv only
+    # applies [tool.uv.sources] index pins to *direct* dependencies — without these
+    # two lines the pytorch-cpu redirect below is silently ignored and Linux
+    # resolution falls back to the CUDA-flavored PyPI wheels.
+    "torch>=2.13.0",
+    "torchvision>=0.28.0",
     "uvicorn[standard]>=0.52.1",
 ]
-
 [project.scripts]
 compliance-copilot = "compliance_copilot:main"
 
 [build-system]
 requires = ["uv_build>=0.12.1,<0.13.0"]
 build-backend = "uv_build"
+
+[tool.uv]
+# flagembedding depends on torch. The default PyPI torch wheel for Linux
+# bundles the full NVIDIA CUDA stack (cublas, cudnn, cusparse, cusolver,
+# nccl, triton...), several GB total and useless in this CPU-only container.
+# On macOS this isn't an issue — PyPI's torch wheel there is already CPU-only,
+# since there's no CUDA build for macOS. So we only redirect Linux resolution
+# to PyTorch's official CPU-only index; macOS keeps using regular PyPI.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", marker = "platform_system == 'Linux'" },
+]
+torchvision = [
+    { index = "pytorch-cpu", marker = "platform_system == 'Linux'" },
+]
 
 [dependency-groups]
 dev = [
@@ -40,33 +65,27 @@ dev = [
     "ruff>=0.16.1",
     "types-pyyaml>=6.0.12.20260724",
 ]
-
 [tool.ruff]
 line-length = 100
 target-version = "py312"
 src = ["src", "eval", "scripts", "tests"]
-
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "C4", "SIM", "N", "ASYNC"]
 # B008: FastAPI's Depends()/Query()/etc in argument defaults is the framework's
 # idiomatic dependency-injection pattern, not the mutable-default-argument bug
 # this rule is designed to catch.
 ignore = ["B008"]
-
 [tool.ruff.lint.isort]
 known-first-party = ["compliance_copilot"]
-
 [tool.mypy]
 python_version = "3.12"
 strict = true
 mypy_path = "src"
 explicit_package_bases = true
 plugins = ["pydantic.mypy"]
-
 [[tool.mypy.overrides]]
 module = ["docling.*", "langgraph.*", "langfuse.*", "FlagEmbedding.*"]
 ignore_missing_imports = true
-
 [tool.pytest.ini_options]
 testpaths = ["tests", "eval"]
 asyncio_mode = "auto"

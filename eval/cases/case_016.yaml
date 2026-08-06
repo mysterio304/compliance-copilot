@@ -1,0 +1,19 @@
+id: case_016
+input_spec: |
+  Product: solar-powered garden light
+  Power: integrated photovoltaic panel, 1.2V NiMH cell, no mains connection
+  Materials: stainless steel body, polycarbonate lens
+  Intended use: outdoor garden lighting
+language: en
+expected_regulations: []
+expected_clauses:
+  - doc: tr_eaes_037_2016
+    clause: "Раздел I, пункт 3"
+must_not_return: ["ТР ТС 004/2011", "ТР ТС 008/2011", "ТР ТС 010/2011", "ТР ТС 020/2011"]
+notes: >
+  Two exclusions stack: clause 6г excludes photovoltaic panels within
+  electronics, clause 6ж excludes batteries and accumulators. No mains
+  connection means no LVD. Tests whether the agent can apply multiple
+  exclusions at once rather than stopping at the first one it finds.
+  Verdict on the 020/2011 dispute: not applicable.
+  Приложение 1, пункт 3 lists batteries and battery-powered lighting without active electronic circuits among the EMC-passive equipment the regulation does not cover; the spec states no active circuitry.

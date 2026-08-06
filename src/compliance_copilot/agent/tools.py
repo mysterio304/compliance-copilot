@@ -29,6 +29,7 @@ async def search_regulations(
     lang: str,
     top_k: int,
     regulation_code: str | None = None,
+    ensure_scope_clause: bool = False,
 ) -> list[RetrievalHit]:
     """Hybrid retrieval tool. `lang` is accepted for interface parity with the
     brief's tool signature and cross-lingual intent, but isn't otherwise used —
@@ -42,6 +43,7 @@ async def search_regulations(
         settings.retrieval_fusion_weight,
         settings.retrieval_relevance_floor,
         regulation_code=regulation_code,
+        ensure_scope_clause=ensure_scope_clause,
     )
 
 
