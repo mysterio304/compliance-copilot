@@ -8,8 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from compliance_copilot.agent.llm import call_structured
 from compliance_copilot.agent.models import (
     KNOWN_REGULATIONS,
-    ApplicabilityAssessment,
+    ExclusionAssessment,
     RegulationPlan,
+    ScopeAssessment,
 )
 from compliance_copilot.agent.state import AgentState
 from compliance_copilot.agent.tools import extract_product_attributes, search_regulations
@@ -21,6 +22,18 @@ from compliance_copilot.schemas.product import ProductAttributes
 from compliance_copilot.schemas.reports import ComplianceFinding, ComplianceReport
 
 NodeFn = Callable[[AgentState], Awaitable[dict[str, Any]]]
+
+# How much of a candidate clause the applicability assessor gets to read. This
+# was 500, which silently truncated 21% of the corpus (145 of 685 chunks) and
+# produced wrong verdicts rather than degraded ones: ТР ЕАЭС 037/2016's
+# exclusion list is one 1290-character clause enumerating а)–к), so at 500 the
+# model saw the two exclusions that fit and none of the eight that didn't. It
+# then affirmed applicability for electric toys, used goods, medical devices,
+# measuring instruments, photovoltaics and vehicle equipment — every one of
+# which that clause excludes by name, in text it was never shown. Sized against
+# the measured distribution instead of a round number: p99 clause length is
+# 2255 characters, so truncation is now the rare exception it was assumed to be.
+MAX_CLAUSE_CHARS_FOR_ASSESSMENT = 2500
 
 
 def _summarize_attributes(attrs: ProductAttributes) -> str:
@@ -115,6 +128,10 @@ def make_retrieve_node(settings: Settings, session: AsyncSession) -> NodeFn:
                 "auto",
                 settings.retrieval_top_k,
                 regulation_code=regulation_code,
+                # The next node is asked whether this regulation applies, and the
+                # clause defining its scope is what settles that — so it must be
+                # in evidence rather than depending on it placing in the top_k.
+                ensure_scope_clause=True,
             )
             retrieved[regulation_code] = hits
         return {"retrieved_by_regulation": retrieved}
@@ -122,77 +139,157 @@ def make_retrieve_node(settings: Settings, session: AsyncSession) -> NodeFn:
     return retrieve_node
 
 
+def _clause_listing(hits: list[RetrievalHit]) -> str:
+    return "\n".join(
+        f"- clause_id={hit.clause_id} | {hit.text[:MAX_CLAUSE_CHARS_FOR_ASSESSMENT]}"
+        for hit in hits
+    )
+
+
+def _citations_for(hits: list[RetrievalHit], clause_ids: list[str]) -> list[Citation]:
+    hits_by_id = {hit.clause_id: hit for hit in hits}
+    return [
+        Citation(
+            clause_id=clause_id,
+            document_id=hits_by_id[clause_id].document_id,
+            quoted_span=hits_by_id[clause_id].text,
+            relevance_score=hits_by_id[clause_id].dense_score,
+        )
+        for clause_id in clause_ids
+    ]
+
+
+def _check_cited_ids(cited: list[str], allowed: set[str]) -> None:
+    unknown = set(cited) - allowed
+    if unknown:
+        raise ValueError(f"cited_clause_ids contains ids not in the provided candidates: {unknown}")
+
+
+def _scope_prompt(regulation_code: str, clause_listing: str, correction: str) -> str:
+    return (
+        f"Question 1 of 2 about {regulation_code} ({KNOWN_REGULATIONS[regulation_code]}).\n\n"
+        "Does this regulation's stated scope reach this product at all? Consider only what the "
+        "regulation says it COVERS — its 'распространяется на' clause and any product list "
+        "(приложение / перечень) among the clauses below. Ignore exclusions completely: a "
+        "separate question handles those, so do not answer in_scope=false because something "
+        "looks carved out.\n\n"
+        "A product may bundle several physically distinct components (the device itself, a "
+        "separate mains adapter/charger/power supply, a removable battery). If the regulation "
+        "reaches any one of them, it reaches the product — so a low-voltage device is in scope "
+        "through its mains adapter when the attributes say one is included. Judge only the "
+        "components the attributes actually state: do not assume an unstated mains adapter for "
+        "something described as battery-powered, PoE-powered, or supplied without one.\n\n"
+        "Cite the clause(s) your answer rests on. Keep reasoning to 2-3 sentences."
+        f"{correction}\n\nCandidate clauses:\n{clause_listing}"
+    )
+
+
+def _exclusion_prompt(regulation_code: str, clause_listing: str, correction: str) -> str:
+    return (
+        f"Question 2 of 2 about {regulation_code} ({KNOWN_REGULATIONS[regulation_code]}). That "
+        "the regulation's positive scope reaches this product is already settled — do not "
+        "revisit it.\n\n"
+        "Is the product carved back out by one of this regulation's named exclusions? At least "
+        "one clause below says what the regulation does NOT cover ('не распространяется на'), "
+        "usually as a single long clause listing unrelated categories а), б), в), … Read that "
+        "list to its end: the category that matches, if any, can be anywhere in it.\n\n"
+        "Exclusions are narrow. Answer excluded=true only when the product clearly falls into a "
+        "listed category, matching on substance rather than wording — the spec and the clause "
+        "describe the same thing differently and in different languages ('refurbished' is "
+        "'бывшие в употреблении'; a part 'for installation in vehicles' is equipment 'для "
+        "использования на … транспорте'). If nothing clearly matches, answer excluded=false: a "
+        "partial or arguable resemblance is not an exclusion.\n\n"
+        "Cite the exclusion clause you checked against. Keep reasoning to 2-3 sentences."
+        f"{correction}\n\nCandidate clauses:\n{clause_listing}"
+    )
+
+
+async def _assess_one_regulation(
+    settings: Settings,
+    attrs: ProductAttributes,
+    regulation_code: str,
+    hits: list[RetrievalHit],
+    correction: str,
+) -> ComplianceFinding:
+    """Applicability as two one-directional questions combined in code, rather
+    than one prompt asked to weigh inclusion and exclusion against each other —
+    see ExclusionAssessment for why that balance could not be struck in a single
+    prompt. The exclusion question is skipped when the positive scope doesn't
+    reach the product: the verdict is already settled and the call would be
+    asking whether something outside the scope is also carved out of it."""
+    allowed_ids = {hit.clause_id for hit in hits}
+    listing = _clause_listing(hits)
+    attributes_json = attrs.model_dump_json()
+
+    def check_scope(assessment: ScopeAssessment) -> None:
+        _check_cited_ids(assessment.cited_clause_ids, allowed_ids)
+
+    def check_exclusion(assessment: ExclusionAssessment) -> None:
+        _check_cited_ids(assessment.cited_clause_ids, allowed_ids)
+
+    scope = await asyncio.to_thread(
+        call_structured,
+        settings,
+        _scope_prompt(regulation_code, listing, correction),
+        attributes_json,
+        ScopeAssessment,
+        extra_validate=check_scope,
+    )
+    if not scope.in_scope:
+        return ComplianceFinding(
+            regulation_code=regulation_code,
+            applies=False,
+            reasoning=scope.reasoning,
+            citations=_citations_for(hits, scope.cited_clause_ids),
+        )
+
+    exclusion = await asyncio.to_thread(
+        call_structured,
+        settings,
+        _exclusion_prompt(regulation_code, listing, correction),
+        attributes_json,
+        ExclusionAssessment,
+        extra_validate=check_exclusion,
+    )
+    if exclusion.excluded:
+        return ComplianceFinding(
+            regulation_code=regulation_code,
+            applies=False,
+            # Cite the exclusion, not the scope clause: the exclusion is what
+            # decided this verdict, and it's what a reader needs to check.
+            reasoning=f"Within the regulation's stated scope, but excluded: {exclusion.reasoning}",
+            citations=_citations_for(hits, exclusion.cited_clause_ids),
+        )
+
+    return ComplianceFinding(
+        regulation_code=regulation_code,
+        applies=True,
+        reasoning=f"{scope.reasoning} No exclusion applies: {exclusion.reasoning}",
+        conformity_assessment_route=scope.conformity_assessment_route,
+        citations=_citations_for(hits, scope.cited_clause_ids),
+    )
+
+
 def make_assess_applicability_node(settings: Settings) -> NodeFn:
     async def assess_applicability_node(state: AgentState) -> dict[str, Any]:
         attrs = state["attributes"]
-        retrieved_by_regulation = state["retrieved_by_regulation"]
         validation_errors = state.get("validation_errors") or []
+        correction = (
+            f"\n\nNote: a previous attempt failed validation: {'; '.join(validation_errors)}. "
+            "Only cite clause_id values from the candidate list."
+            if validation_errors
+            else ""
+        )
 
         findings: list[ComplianceFinding] = []
         skipped: list[str] = []
 
-        for regulation_code, hits in retrieved_by_regulation.items():
+        for regulation_code, hits in state["retrieved_by_regulation"].items():
             if not hits:
                 skipped.append(f"{regulation_code}: no evidence above the relevance floor.")
                 continue
-
-            allowed_ids = {hit.clause_id for hit in hits}
-            clause_listing = "\n".join(
-                f"- clause_id={hit.clause_id} | {hit.text[:500]}" for hit in hits
-            )
-            correction = (
-                f"\n\nNote: a previous attempt failed validation: {'; '.join(validation_errors)}. "
-                "Only cite clause_id values from the list below."
-                if validation_errors
-                else ""
-            )
-
-            def validate_citations(
-                assessment: ApplicabilityAssessment, allowed: set[str] = allowed_ids
-            ) -> None:
-                unknown = set(assessment.cited_clause_ids) - allowed
-                if unknown:
-                    raise ValueError(
-                        f"cited_clause_ids contains ids not in the provided candidates: {unknown}"
-                    )
-
-            assessment = await asyncio.to_thread(
-                call_structured,
-                settings,
-                (
-                    f"Decide whether {regulation_code} ({KNOWN_REGULATIONS[regulation_code]}) "
-                    "applies to this product, given the product attributes and the candidate "
-                    "clauses retrieved from that regulation below. A product described in the "
-                    "attributes may bundle multiple physically distinct electrical components "
-                    "(e.g. the device itself, a separate power adapter/charger/power supply, a "
-                    "removable battery) — assess each component that is plausibly in scope, not "
-                    "only the primary device, since a regulation can genuinely apply to one "
-                    f"component even when it doesn't apply to another.{correction}\n\n"
-                    f"Candidate clauses:\n{clause_listing}"
-                ),
-                attrs.model_dump_json(),
-                ApplicabilityAssessment,
-                extra_validate=validate_citations,
-            )
-
-            hits_by_id = {hit.clause_id: hit for hit in hits}
-            citations = [
-                Citation(
-                    clause_id=clause_id,
-                    document_id=hits_by_id[clause_id].document_id,
-                    quoted_span=hits_by_id[clause_id].text,
-                    relevance_score=hits_by_id[clause_id].dense_score,
-                )
-                for clause_id in assessment.cited_clause_ids
-            ]
             findings.append(
-                ComplianceFinding(
-                    regulation_code=regulation_code,
-                    applies=assessment.applies,
-                    reasoning=assessment.reasoning,
-                    conformity_assessment_route=assessment.conformity_assessment_route,
-                    citations=citations,
-                )
+                await _assess_one_regulation(settings, attrs, regulation_code, hits, correction)
             )
 
         return {"findings": findings, "skipped_regulations": skipped}

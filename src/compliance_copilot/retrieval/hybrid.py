@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from pgvector import SparseVector
-from sqlalchemy import select
+from sqlalchemy import Row, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from compliance_copilot.db.models import BGE_M3_VOCAB_SIZE, ChunkRow, ClauseRow, DocumentRow
@@ -70,6 +70,93 @@ async def _dense_scores_for_ids(
     return {row.id: 1 - row.distance for row in result}
 
 
+# Every EAEU technical regulation defines its scope in two halves: what it
+# covers ("Настоящий технический регламент ... распространяется на ...", or
+# "Действие настоящего технического регламента распространяется на ..." in the
+# ТР ЕАЭС 037/2016 phrasing) and what it carves out ("... не распространяется
+# на ...", typically one clause enumerating categories а)–к). Matched with \s+
+# rather than literal spaces because the corpus text comes out of PDF extraction
+# with runs of whitespace inside sentences.
+#
+# The two are near-identical lexically — the exclusion half differs by one "не"
+# in a clause that can run past 1600 characters — so embedding similarity cannot
+# tell them apart, and ranking surfaces one about as often as the other. That is
+# precisely why both have to be supplied structurally rather than hoped for.
+_SCOPE_INCLUSION_SIGNATURE = r"распространя\w*\s+на"
+_SCOPE_EXCLUSION_SIGNATURE = r"не\s+распространя\w*\s+на"
+
+
+async def _earliest_matching_chunk(
+    session: AsyncSession, regulation_code: str, signature: str, *, excluding: str | None = None
+) -> Row[tuple[str, str, str, str]] | None:
+    stmt = (
+        select(ChunkRow.id, ChunkRow.clause_id, ClauseRow.document_id, ChunkRow.text)
+        .join(ClauseRow, ChunkRow.clause_id == ClauseRow.id)
+        .join(DocumentRow, ClauseRow.document_id == DocumentRow.id)
+        .where(
+            DocumentRow.regulation_code == regulation_code,
+            ClauseRow.text.op("~")(signature),
+        )
+    )
+    if excluding is not None:
+        stmt = stmt.where(~ClauseRow.text.op("~")(excluding))
+    stmt = stmt.order_by(ClauseRow.char_start, ChunkRow.id).limit(1)
+    return (await session.execute(stmt)).first()
+
+
+async def _scope_clause_hits(
+    session: AsyncSession,
+    query_dense: list[float],
+    regulation_code: str,
+    exclude_chunk_ids: set[str],
+) -> list[RetrievalHit]:
+    """Both halves of a regulation's scope statement, scored against the query
+    like any other hit.
+
+    Applicability is *defined* by these two clauses, so an assessor asked "does
+    this regulation apply" needs both in evidence every time. Supplying only the
+    positive half is not enough and was itself a defect: a product can sit
+    squarely inside the stated scope and still be carved out by name, which is
+    what happens with electric toys, used goods, medical devices and measuring
+    instruments under ТР ЕАЭС 037/2016. Leaving either to chance in the top_k
+    produces confidently wrong verdicts in both directions — a missed inclusion
+    reads as a false negative, a missed exclusion as a false positive.
+
+    Earliest-in-document-order resolves the regulations whose later articles
+    reuse the same phrasing.
+    """
+    inclusion = await _earliest_matching_chunk(
+        session,
+        regulation_code,
+        _SCOPE_INCLUSION_SIGNATURE,
+        # A clause carrying the negated phrasing is the exclusion half, even
+        # though it also matches the inclusion pattern as a substring.
+        excluding=_SCOPE_EXCLUSION_SIGNATURE,
+    )
+    exclusion = await _earliest_matching_chunk(session, regulation_code, _SCOPE_EXCLUSION_SIGNATURE)
+
+    rows = [row for row in (inclusion, exclusion) if row is not None]
+    wanted = [row for row in rows if row.id not in exclude_chunk_ids]
+    if not wanted:
+        return []
+
+    scores = await _dense_scores_for_ids(session, query_dense, [row.id for row in wanted])
+    return [
+        RetrievalHit(
+            chunk_id=row.id,
+            clause_id=row.clause_id,
+            document_id=row.document_id,
+            text=row.text,
+            dense_score=scores.get(row.id, 0.0),
+            sparse_score=0.0,
+            # Ranked last deliberately: included for coverage, not because it
+            # out-competed anything on relevance.
+            fused_score=0.0,
+        )
+        for row in wanted
+    ]
+
+
 async def _search_sparse(
     session: AsyncSession, query_sparse: SparseVector, top_k: int, regulation_code: str | None
 ) -> list[_RankedHit]:
@@ -102,6 +189,7 @@ async def hybrid_search(
     fusion_weight: float,
     relevance_floor: float,
     regulation_code: str | None = None,
+    ensure_scope_clause: bool = False,
 ) -> list[RetrievalHit]:
     """Hybrid dense+sparse retrieval over BGE-M3 embeddings, fused with reciprocal
     rank fusion (fusion_weight favors dense at 1.0, sparse at 0.0).
@@ -121,6 +209,13 @@ async def hybrid_search(
     regulation_code optionally scopes the search to one document (e.g. "ТР ТС
     004/2011") — used by the agent's per-regulation-family retrieval step so a
     family's evidence isn't diluted by generic boilerplate from other documents.
+
+    ensure_scope_clause appends both halves of that regulation's scope statement
+    — what it covers and what it excludes — if the ranked results missed them,
+    past both the relevance floor and the top_k cut. It is opt-in rather than
+    default because it answers an agent-level question ("what defines whether
+    this regulation applies?") rather than a retrieval one, and the retrieval
+    baseline is measured without it.
     """
     query_embedding = embed_query(query, embedding_model)
     query_sparse = SparseVector(query_embedding.sparse, BGE_M3_VOCAB_SIZE)
@@ -165,4 +260,16 @@ async def hybrid_search(
         if dense_scores.get(chunk_id, 0.0) >= relevance_floor
     ]
     hits.sort(key=lambda hit: hit.fused_score, reverse=True)
-    return hits[:top_k]
+    top_hits = hits[:top_k]
+
+    if ensure_scope_clause and regulation_code is not None:
+        top_hits.extend(
+            await _scope_clause_hits(
+                session,
+                query_embedding.dense,
+                regulation_code,
+                {hit.chunk_id for hit in top_hits},
+            )
+        )
+
+    return top_hits

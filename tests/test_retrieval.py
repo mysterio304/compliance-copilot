@@ -18,6 +18,7 @@ gap is real and worth tracking as a retrieval-quality limitation, not something
 to paper over by only testing the cases that already work.
 """
 
+import json
 from collections.abc import AsyncIterator
 
 import numpy as np
@@ -26,7 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from compliance_copilot.config import get_settings
-from compliance_copilot.db.models import ChunkRow
+from compliance_copilot.db.models import ChunkRow, ClauseRow
 from compliance_copilot.db.session import make_engine, make_session_factory
 from compliance_copilot.retrieval.embedder import embed_query
 from compliance_copilot.retrieval.hybrid import hybrid_search
@@ -125,9 +126,7 @@ async def test_compact_query_beats_diluted_prose_for_a_specific_substance_mentio
         "Hazardous substances declaration: contains lead (Pb) content below 0.1% "
         "by weight, no cadmium, no mercury present"
     )
-    compact_query = (
-        '{"materials": ["ABS housing", "copper wire", "lead (Pb) below 0.1%"]}'
-    )
+    compact_query = '{"materials": ["ABS housing", "copper wire", "lead (Pb) below 0.1%"]}'
 
     diluted_hits = await hybrid_search(
         session,
@@ -224,3 +223,81 @@ async def test_fusion_weight_changes_results_at_shipped_relevance_floor(
         "fusion_weight produced identical results across 0.0/0.5/1.0 at the "
         "shipped relevance_floor — the inertness bug may have regressed"
     )
+
+
+async def test_ensure_scope_clause_supplies_the_clause_ranking_alone_misses(
+    session: AsyncSession, embedding_model: str
+) -> None:
+    """Regression test for a real false negative: asked whether toy safety
+    applied to a plush teddy bear, the agent answered "no" — correctly, given
+    its evidence. Ranked retrieval had handed it Приложение 1 and the
+    electrical-properties clauses but not Статья 1 пункт 1, the clause that
+    states which products the regulation covers, and the agent won't assert
+    applicability it has no citation for. The scope clause now comes along
+    regardless of where it ranks."""
+    teddy_bear_attributes = json.dumps(
+        {
+            "product_name": "Plush Teddy Bear",
+            "voltage": None,
+            "frequency": None,
+            "materials": ["polyester textile fabric", "polyester fiber stuffing"],
+            "wireless_bands": [],
+            "has_batteries": False,
+            "intended_user": "children",
+            "notes": None,
+        }
+    )
+
+    async def clause_id_for(path: str) -> str:
+        return (
+            await session.execute(
+                select(ClauseRow.id).where(
+                    ClauseRow.document_id == "tr_ts_008_2011",
+                    ClauseRow.clause_path == path,
+                )
+            )
+        ).scalar_one()
+
+    # Both halves of the scope statement: what the regulation covers, and the
+    # clause that carves categories back out of it.
+    scope_clause_id = await clause_id_for("Статья 1, пункт 1")
+    exclusion_clause_id = await clause_id_for("Статья 1, пункт 2")
+
+    # Shipped parameters, not test-friendly ones: the point is that the miss
+    # happens in the configuration the system actually runs.
+    settings = get_settings()
+
+    ranked_only = await hybrid_search(
+        session,
+        teddy_bear_attributes,
+        embedding_model,
+        top_k=settings.retrieval_top_k,
+        fusion_weight=settings.retrieval_fusion_weight,
+        relevance_floor=settings.retrieval_relevance_floor,
+        regulation_code="ТР ТС 008/2011",
+    )
+    assert scope_clause_id not in {hit.clause_id for hit in ranked_only}, (
+        "ranking alone now surfaces the scope clause for this query — if that is "
+        "a genuine retrieval improvement, this test no longer guards anything"
+    )
+
+    with_scope = await hybrid_search(
+        session,
+        teddy_bear_attributes,
+        embedding_model,
+        top_k=settings.retrieval_top_k,
+        fusion_weight=settings.retrieval_fusion_weight,
+        relevance_floor=settings.retrieval_relevance_floor,
+        regulation_code="ТР ТС 008/2011",
+        ensure_scope_clause=True,
+    )
+    with_scope_ids = {hit.clause_id for hit in with_scope}
+    assert scope_clause_id in with_scope_ids
+    # The exclusion half matters as much: supplying only the positive scope let
+    # the assessor affirm applicability for categories the regulation carves out
+    # by name, since nothing in its evidence said they were carved out.
+    assert exclusion_clause_id in with_scope_ids
+
+    for clause_id in (scope_clause_id, exclusion_clause_id):
+        hit = next(hit for hit in with_scope if hit.clause_id == clause_id)
+        assert hit.dense_score > 0.0, f"{clause_id} should carry its real similarity, not a stub"
