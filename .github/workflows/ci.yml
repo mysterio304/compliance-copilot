@@ -34,6 +34,10 @@ jobs:
   test-and-eval:
     name: Unit tests and eval harness
     runs-on: ubuntu-latest
+    # A cache miss re-embeds the whole corpus on 2 vCPUs (~2h); a hit restores
+    # it in seconds. Capped well under the 6h default so a stuck run fails
+    # visibly instead of quietly burning the account's minutes.
+    timeout-minutes: 180
     services:
       db:
         image: pgvector/pgvector:pg16
@@ -76,20 +80,79 @@ jobs:
             -d compliance_copilot -c 'CREATE EXTENSION IF NOT EXISTS vector;'
 
       # BGE-M3 (~2.2GB) and Docling's layout/OCR models are downloaded on first
-      # use; cache them so repeat runs don't re-download every time.
+      # use; cache them so repeat runs don't re-download every time. Still
+      # needed on a corpus-cache hit: the tests and the eval harness embed
+      # their queries with the same model.
       - name: Cache HuggingFace model weights
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
           key: huggingface-models-bge-m3-docling
 
-      # The corpus is a fixed snapshot: the same PDFs committed in
-      # data/raw_pdfs/ every run, not fetched live — see data/sources.md.
-      - name: Ingest corpus
-        run: uv run python scripts/ingest_corpus.py
+      # The corpus is a fixed snapshot — the same PDFs committed in
+      # data/raw_pdfs/ every run, not fetched live (see data/sources.md) — so
+      # its embeddings are a pure function of the PDFs, the ingestion code, the
+      # schema and the model. Cache the result rather than recomputing it:
+      # embedding 685 chunks with BGE-M3 on a 2-vCPU runner costs ~8.8s each,
+      # about two hours, which the first real CI run spent before being
+      # cancelled. Caching the model weights alone does not help — that saves
+      # the download, not the inference.
+      #
+      # Anything in the key changing means the stored vectors no longer
+      # describe this corpus, so it must miss and recompute.
+      - name: Cache embedded corpus
+        id: corpus-cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/corpus-dump.sql.gz
+          key: >-
+            corpus-v1-${{ env.EMBEDDING_MODEL_NAME }}-${{ hashFiles(
+              'data/raw_pdfs/**',
+              'data/corpus_manifest.yaml',
+              'src/compliance_copilot/ingest/**',
+              'src/compliance_copilot/retrieval/embedder.py',
+              'src/compliance_copilot/retrieval/loader.py',
+              'src/compliance_copilot/db/models.py'
+            ) }}
 
-      - name: Load corpus (embed with BGE-M3, write to Postgres)
-        run: uv run python scripts/load_corpus.py
+      - name: Ingest and embed corpus
+        if: steps.corpus-cache.outputs.cache-hit != 'true'
+        run: |
+          uv run python scripts/ingest_corpus.py
+          uv run python scripts/load_corpus.py
+          PGPASSWORD=compliance pg_dump -h localhost -p 5433 -U compliance \
+            -d compliance_copilot | gzip > /tmp/corpus-dump.sql.gz
+
+      - name: Restore embedded corpus from cache
+        if: steps.corpus-cache.outputs.cache-hit == 'true'
+        run: |
+          gunzip -c /tmp/corpus-dump.sql.gz | PGPASSWORD=compliance psql \
+            -h localhost -p 5433 -U compliance -d compliance_copilot \
+            --quiet --set ON_ERROR_STOP=on
+          uv run python - <<'PY'
+          import asyncio, os
+          from sqlalchemy import func, select
+          from sqlalchemy.ext.asyncio import create_async_engine
+          import sys; sys.path.insert(0, "src")
+          from compliance_copilot.db.models import ChunkRow
+
+          async def main() -> None:
+              engine = create_async_engine(os.environ["DATABASE_URL"])
+              async with engine.connect() as conn:
+                  embedded = await conn.scalar(
+                      select(func.count()).select_from(ChunkRow).where(
+                          ChunkRow.dense_embedding.is_not(None)
+                      )
+                  )
+              await engine.dispose()
+              # A dump that restored without error but landed no vectors would
+              # otherwise surface as a wall of confusing retrieval failures.
+              if not embedded:
+                  raise SystemExit("restored corpus has no embedded chunks")
+              print(f"restored {embedded} embedded chunks from cache")
+
+          asyncio.run(main())
+          PY
 
       # Excludes tests marked @pytest.mark.llm — those make real DeepSeek API
       # calls, cost money, and need a secret this workflow doesn't set up.
