@@ -63,6 +63,18 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen
 
+      # docker/init-db/ handles this locally, mounted into the container's
+      # entrypoint directory by docker-compose. A GitHub Actions service
+      # container cannot use that: services start before actions/checkout, so
+      # there is no repository on disk to mount from. The pgvector image ships
+      # the extension's files but CREATE EXTENSION is still per-database, so
+      # without this the first VECTOR column fails with 'type "vector" does
+      # not exist'.
+      - name: Enable pgvector extension
+        run: |
+          PGPASSWORD=compliance psql -h localhost -p 5433 -U compliance \
+            -d compliance_copilot -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+
       # BGE-M3 (~2.2GB) and Docling's layout/OCR models are downloaded on first
       # use; cache them so repeat runs don't re-download every time.
       - name: Cache HuggingFace model weights

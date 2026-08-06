@@ -162,13 +162,28 @@ reflects retrieval quality specifically. Parameters (`fusion_weight`,
 (`scripts/tune_retrieval.py`), not by intuition — twice: once before a real
 bug fix, once after, since the fix changed which config was actually best:
 
-| Metric | Original (top_k=10, floor=0.35) | Current (fusion=0.5, top_k=10, floor=0.45) |
-|---|---:|---:|
-| retrieval_recall_at_k | 0.125 | 0.250 |
-| citation_precision | 0.560 | 0.580 |
-| regulation_set_f1 | 0.726 | 0.712 |
-| false_positive_rate | 0.524 | 0.571 |
-| abstention_accuracy | 0.000 | 0.000 |
+| Metric | Original (top_k=10, floor=0.35) | Tuned (fusion=0.5, top_k=10, floor=0.45) | All 22 cases |
+|---|---:|---:|---:|
+| retrieval_recall_at_k | 0.125 | 0.250 | 0.333 |
+| citation_precision | 0.560 | 0.580 | 0.432 |
+| regulation_set_f1 | 0.726 | 0.712 | 0.478 |
+| false_positive_rate | 0.524 | 0.571 | 0.625 |
+| abstention_accuracy | 0.000 | 0.000 | 0.000 |
+
+The first two columns are the ten original cases; the third is the same
+retrieval code over all 22 after the exclusion cases were added, and is the
+committed baseline. **The drop between the second and third column is not a
+retrieval regression** — the code is identical and the earlier numbers are
+still reproducible on the original ten (`--cases-dir`). The twelve new cases
+are simply hostile to this layer by construction: most expect a regulation
+*not* to fire, and ranked retrieval has no way to express that, so every
+top-k hit it returns counts against precision and the false-positive rate.
+`retrieval_recall_at_k` rose instead, because ten gold clause paths that
+never resolved were corrected.
+
+That is the same layer confusion the agent harness exists to resolve, showing
+up one more time: these numbers describe what similarity search surfaces, not
+what the system concludes.
 
 `eval/run_eval.py` writes `eval/results/latest.json` and compares it against
 the committed `eval/results/baseline.json`, exiting non-zero on a regression
@@ -597,10 +612,19 @@ fix was. What's left:
   environment; the text is authentic (pulled from a reachable mirror,
   verified against the real decision numbers) but re-rendered into PDF
   locally. See `data/sources.md`.
-- **CI has never actually run.** The GitHub Actions workflow is written and
-  its exact command sequence was verified locally against a from-scratch
-  database, but this repository has no GitHub remote yet — the workflow has
-  not executed in GitHub's environment.
+- **CI now runs, and its first execution found two things local verification
+  could not.** The workflow had been checked by running its command sequence
+  by hand against a from-scratch database — which passes, and misses the
+  parts where CI's environment differs from a laptop's. On the first real run
+  the corpus load failed with `type "vector" does not exist`: locally
+  docker-compose mounts `docker/init-db/` into the container's entrypoint
+  directory so `CREATE EXTENSION` runs at startup, but an Actions service
+  container starts *before* `actions/checkout`, so there is no repository on
+  disk to mount from and the extension was never enabled. Fixed with an
+  explicit step. Queued behind it was a second failure: the retrieval gate
+  compared 22 cases against a baseline measured on 10. Both fixed, but the
+  general point stands — "verified locally" was not the same claim as
+  "verified", and only running it showed the difference.
 - **No Alembic migrations.** Schema is created via `Base.metadata.create_all`
   on startup. Fine for a project with no migration history yet; will need
   real migration tooling before the schema changes in production.
