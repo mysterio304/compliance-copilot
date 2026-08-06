@@ -308,6 +308,87 @@ to ranking, for the same reason the positive half was: they are lexically near
 identical — the exclusion differs by one "не" in a clause that can run past
 1600 characters — so embedding similarity cannot prefer one over the other.
 
+**That is not yet enough, because a regulation's exclusions are not always in
+one clause.** Auditing the remaining disagreements against the regulation text
+turned up seven false positives with a single shared cause: ТР ТС 020/2011
+carves out EMC-passive equipment in Приложение 1 — cable assemblies (пункт 1),
+battery-powered lighting without active circuits (пункт 3), switches and
+sockets without active circuits (пункт 10), high-voltage equipment whose only
+interference source is localised insulation defects (пункт 6) — none of which
+is in the Статья 1 clause the injection guarantees. An extension cord, a solar
+garden light and a 10 kV switchgear panel are each excluded by name there and
+each had EMC asserted anyway. Two more are separate: ТР ТС 004/2011 excludes
+"изделия медицинского назначения" verbatim yet was applied to a blood pressure
+monitor, and ТР ТС 010/2011 defines машина by *purpose* ("обработки,
+переработки, перемещения или упаковки материала"), which a toy robot does not
+meet — a qualifier the prompt description dropped when it was widened to stop
+excluding hand-cranked equipment.
+
+Worth stating plainly, since the opposite was assumed at the outset: these were
+audited expecting gold-label disputes, and the gold labels turned out to be
+right in five of seven. The corrected labels make the defects measurable —
+`false_positive_rate` moved 0.039 -> 0.125 on the same agent behaviour, which
+is the harness catching up rather than the system regressing.
+
+Fixing those audited false positives surfaced four more mechanisms, each
+traced live before being fixed, two of them introduced by the fixes
+themselves — recorded because the *shape* of each failure is more reusable
+than the fix:
+
+- **A verdict boolean that could disagree with its own reasoning.** A trace
+  caught the assessor reasoning "the product is clearly a medical device, it
+  falls under this exclusion" while setting `excluded=false` — conclusion and
+  flag came apart, and the flag is what the code acted on. Fixed by removing
+  the boolean: the model now reports `matched_exclusion_category` (the
+  category itself, or null) and the verdict is derived in code from the
+  match's presence. Naming a match *is* the positive verdict; there is no
+  second field left to contradict it.
+- **A model prior overriding an instruction buried mid-paragraph.** The
+  planner excluded a hand-cranked coffee grinder from machinery safety with
+  "hand-operated and not covered" — the EU Machinery Directive, which the
+  model plainly knows, does exempt manually powered machines; ТР ТС 010/2011
+  does not. The instruction saying so existed but sat in the middle of the
+  description. Rewritten to open with the warning ("unlike the EU Machinery
+  Directive you may know…") and to carry Статья 2's actual definition: a
+  machine is defined by working on material, which puts the grinder in scope
+  and a toy robot out of it, both verified.
+- **Polarity blindness in the injected clauses** — introduced by the annex
+  expansion above and caught as a stable regression two runs later. An item
+  from the exclusions annex ("Провода, шнуры, кабели…") and an item from the
+  covered-products annex ("оборудование световое…") are both bare equipment
+  lists; nothing in the chunk text says which list it came from, and the
+  assessor was traced carving a desk lamp out of EMC *using the
+  covered-products list as the exclusion*. Every structurally injected clause
+  now carries an explicit [SCOPE]/[EXCLUSION] tag and its clause_path, and
+  the prompt defines exclusions as exactly the tagged candidates — polarity
+  travels in the data instead of being guessed from prose.
+- **Unstated-component presumption in both directions.** The same contract
+  that forbids inventing a mains adapter for a battery-powered speaker also
+  forbids inventing "protection relays typical of switchgear" to keep EMC
+  applicable — the assessor was traced doing exactly that. Both prompts now
+  state that the attributes are the complete description; absence conditions
+  in exclusion categories ("без активных электронных цепей") are judged from
+  what is stated, not from what is typical.
+
+Measured across three runs per configuration on the corrected labels:
+
+| | before this round | after |
+|---|---|---|
+| forbidden regulations asserted | 7–8 of 56 | 3–4 of 56 |
+| cases fully correct | 14 / 14 / 14 | 15 / 16 / 16 |
+| stable-correct cases | 14 | 15 |
+| stable-wrong cases | 7 | 4 |
+| run-to-run unstable cases | 1 | 3 |
+
+Of the four stable-wrong cases, two (case_009, case_014) are the open label
+questions above, not agent defects. The other two (case_018, case_022) plus
+the three unstable ones are all the same residual family: EMC-passivity
+judgments under ТР ТС 020/2011's Приложение 1, where the verdict sits at the
+model's decision boundary and interventions reshuffle rather than settle it.
+That family is where the next real gain would have to come from — most likely
+by deciding passivity deterministically from the attributes rather than
+asking the model at all.
+
 **Measured honestly, attempt 3 is indistinguishable from attempt 1 on
 aggregate.** Both score 68% of cases fully correct at the same precision and
 recall; attempt 3 changed which cases fail rather than how many. Repeating the
@@ -472,12 +553,32 @@ fix was. What's left:
   pass — more reasoning gaps than the ones already found likely exist.
 - **Ranked retrieval recall is still moderate (0.250) against the gold anchor
   clauses**, even after doubling it by fixing the fusion_weight bug. What the
-  agent ends up citing is better than that (0.750) — but only because the scope
-  clause is now supplied structurally rather than by ranking, which covers the
-  single most important clause per regulation and nothing else. Regulation-level
+  agent ends up citing is better than that — but only because the scope clause
+  is now supplied structurally rather than by ranking, which covers the single
+  most important clause per regulation and nothing else. Regulation-level
   signal stays stronger than clause-level precision: the system points at the
   right regulation reliably; beyond the scope clause, the specific пункт it
   cites may not be the one an expert would reach for first.
+- **`retrieval_recall_at_k` cannot see exclusion citations at all.** Several
+  gold cases name an exclusion clause as the expected evidence, because citing
+  the exclusion is exactly what a correct negative verdict should do. But
+  `AgentPrediction` builds its clause list only from findings with
+  `applies=True` — deliberately, since counting a negative verdict's citations
+  as predictions would score a correct exclusion as a false positive. The two
+  requirements pull opposite ways and the metric currently loses: fixing ten
+  malformed gold clause paths moved it 0.417 -> 0.417, because the clauses in
+  question are cited on the negative side where nothing counts them. Needs a
+  separate metric for exclusion evidence rather than a tweak to either of
+  these.
+- **The gold clause paths follow this corpus's rendering, not the official
+  documents' numbering.** ТР ЕАЭС 037/2016's exclusion list is `Раздел I,
+  пункт 3` here while the case notes refer to it as clause 6, and its cable
+  entry is `Приложение 1, пункт 10` against the notes' clause 50. The
+  sub-item letters (а–к) line up exactly, so this looks like a numbering
+  difference between the mirror-sourced PDFs and the originals rather than a
+  content difference — but it has not been checked against an authoritative
+  copy, and the labels were aligned to the corpus because that is what the
+  citations resolve against.
 - **No Langfuse trace has actually been inspected, and the credentials in
   `config.py` never reach the SDK.** `settings.langfuse_public_key` /
   `langfuse_secret_key` are declared but read by nothing — `@observe()` relies
